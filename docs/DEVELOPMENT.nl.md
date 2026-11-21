@@ -1,7 +1,8 @@
 # Need for Speed Carbon – Xbox 360 recompilatie
 
-Static recompilation van NFS Carbon (Xbox 360, US, title ID `454107EC`, v0.0.0.7)
-met de [ReXGlue SDK](https://github.com/rexglue/rexglue-sdk).
+Static recompilation van NFS Carbon Collector's Edition (Xbox 360, title ID `454107EC`) met de
+[ReXGlue SDK](https://github.com/rexglue/rexglue-sdk). Twee edities: US (`default.xex`
+v0.0.0.7) en Europa (v0.0.0.11). Elke build is voor één editie: die van `game/default.xex`.
 
 > Game-bestanden (de ISO, `game/`) en alles wat eruit gegenereerd wordt
 > (`nfsc/generated/default/`) zijn auteursrechtelijk beschermd: nooit committen of delen.
@@ -12,12 +13,15 @@ met de [ReXGlue SDK](https://github.com/rexglue/rexglue-sdk).
 |---|---|
 | `*.iso` | Eigen dump van de disc (XGD2) |
 | `game/` | Volledig uitgepakte disc: `default.xex`, `NFS/ZZDATA*.BIN`, `Movies/` |
-| `tools/` | `xdvdfs.py` (disc uitpakken), `xexinfo.py` (XEX-header dumpen), `setup-sdk.sh` |
-| `tools/re/` | Reverse-engineering: `strings.py`, `xrefs.py` (lis/addi-verwijzingen), `disasm.py` (disassembly uit de gegenereerde code) |
+| `tools/` | `xdvdfs.py` (disc uitpakken), `xexinfo.py` (XEX-header dumpen), `xexid.py` (title, versie en digest van de eerste pagina, voor CMake), `setup-sdk.sh` |
+| `tools/re/` | Reverse-engineering: `strings.py`, `xrefs.py` (lis/addi-verwijzingen), `callers.py` (wie roept een functie aan), `disasm.py` (disassembly uit de gegenereerde code). Ze werken op een dump van het geladen image: start met `--nfsc.dump_image=image.bin` |
 | `sdk/rexglue-sdk/` | ReXGlue SDK v0.11.0 als git-submodule (upstream, tag `v0.11.0`, commit `a3e1d82`) |
 | `patches/rexglue-sdk/` | Onze aanpassingen op de SDK, toegepast door `setup-sdk.sh` |
 | `nfsc/` | Het recompilatie-project |
-| `nfsc/config/functions.toml` | Handmatige functiegrenzen voor `default.xex` |
+| `nfsc/cmake/editions.cmake` | De bekende edities: versie, digest en naam |
+| `nfsc/cmake/detect_edition.cmake` | Leest `game/default.xex`, kiest de editie (`NFSC_GAME_VERSION`: `auto`, `v7`, `v11`) en maakt `nfsc_edition.h` |
+| `nfsc/config/<versie>/functions.toml` | Handmatige functiegrenzen per editie; CMake kopieert de gekozen naar `config/selected/` |
+| `nfsc/src/addresses_<versie>.h` | Adressen van de hooks per editie, en per functie een flag (`NFSC_FEATURE_*`): met 0 blijven de hooks buiten de build |
 
 ## Toolchain (Windows)
 
@@ -49,6 +53,22 @@ cd ../../nfsc
 cmake --preset win-amd64
 cmake --build --preset win-amd64-release
 ```
+
+## Een gameversie toevoegen
+
+1. Een regel in `nfsc/cmake/editions.cmake` (versie en digest uit `python tools/xexid.py
+   game/default.xex`, naam) en de versie in `NFSC_EDITIONS`.
+2. `nfsc/src/addresses_<versie>.h` met alle `NFSC_FEATURE_*` op 0, en een `#elif` in
+   `addresses.h`. Zo bouwt en start de game al, zonder onze hooks.
+3. `nfsc/config/<versie>/functions.toml`, eerst leeg. Komt de game niet tot het hoofdmenu, of
+   meldt de codegen sprongen buiten een functie, dan komen hier de grenzen (zie de v7).
+4. De hooks één voor één: zoek de functies in een dump (`--nfsc.dump_image`) met `tools/re/`,
+   vanuit wat in de hookbestanden over de v7 staat (strings, constanten, imports). Adres in het
+   header, flag op 1, bouwen, en controleren met de logregel van die hook. Lukt een functie
+   niet, laat de flag op 0 en zet het in README en ROADMAP.
+
+Voor de v0.0.0.11 lagen de meeste functies op een vaste afstand van de v7 (+0x280 voor
+widescreen, +0x218 voor het menu); de globals waren gelijk.
 
 ## Lokale aanpassingen aan de SDK
 

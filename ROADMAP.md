@@ -328,6 +328,24 @@ optioneel **Remix**-profiel voor moderne hardware. Renderer: **Vulkan**.
   Apply and restart (profiel, oude `profile`-regel opgeruimd), intro en laadschermen op 21:9/32:9.
   Niet getest: controller, Career verder dan het menu, D3D12, een pakket op een andere pc.
 
+## Europese Collector's Edition v0.0.0.11 (21-11)
+
+- Tweede editie: `default.xex` v0.0.0.11 (`NfsMWCollectorsEuropeEngRelease.pe`), naast de US
+  v0.0.0.7. Eén build per editie: CMake leest `game/default.xex` (`tools/xexid.py`), kiest
+  `addresses_<versie>.h` en `config/<versie>/functions.toml`, en het spel start alleen met de
+  editie waarvoor het gebouwd is (met een melding welke editie de gekozen data wel is). De
+  release-zip blijft v0.0.0.7. De v7-build is ongewijzigd (zelfde hooksymbolen, getest met
+  `tools/tests/test_hook_symbols.py`).
+- Adressen gevonden in een dump van het geladen image (`--nfsc.dump_image`): present -0x10B8,
+  pad -0x10B0, widescreen +0x280, menu-setup -0x10C0, de menufuncties +0x218; render size-
+  globals en FE-manager op hetzelfde adres. Geen handmatige functiegrenzen nodig.
+- Alle vier functies aan, niets uitgeschakeld. Getest tot het hoofdmenu: fps in de log, intro
+  overslaan (tot de alias-vraag), 21:9 (render 1680x720, 17 layoutwaarden, 2x MSAA), PC SETTINGS
+  en EXIT TO DESKTOP, geen online-opties. Races, framerate-limieten, pauze bij focusverlies en de
+  controller nog niet: checklist bij de gebruiker.
+- Bij afsluiten via EXIT TO DESKTOP één regel `E gpu indirect buffer failed to execute a packet`
+  na de title-terminate; niet vergeleken met de v7.
+
 ## Onderzocht
 
 - **"Vlekjes" op het eindscherm** (29-10, opgelost 30-10): geen renderfout maar een fout in onze
