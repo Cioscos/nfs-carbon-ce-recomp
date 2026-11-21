@@ -3,13 +3,17 @@
 
 #pragma once
 
+#include <cstdint>
+
 namespace rex::kernel {
 class GuestMemory;
 }
 
 namespace nfsc {
 
-// With nfsc.dump_image set: writes the PE image at 0x82000000 (SizeOfImage bytes) there.
-void DumpImageIfRequested(const rex::kernel::GuestMemory& memory);
+// With nfsc.dump_image set: writes the guest image (image_base, image_size bytes; from the
+// generated REX_IMAGE_BASE / REX_IMAGE_SIZE) to that file.
+void DumpImageIfRequested(const rex::kernel::GuestMemory& memory, uint32_t image_base,
+                          uint32_t image_size);
 
 }  // namespace nfsc

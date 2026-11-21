@@ -2,10 +2,7 @@
 
 #include "image_dump.h"
 
-#include <cstdint>
-#include <cstring>
 #include <fstream>
-#include <span>
 #include <string>
 #include <vector>
 
@@ -16,40 +13,16 @@
 
 namespace nfsc {
 
-namespace {
-
-constexpr uint32_t kImageBase = 0x82000000;
-constexpr uint32_t kHeaderSize = 0x1000;
-
-uint32_t LoadLE32(const std::vector<std::byte>& data, size_t offset) {
-  uint32_t value = 0;
-  std::memcpy(&value, data.data() + offset, sizeof(value));
-  return value;
-}
-
-}  // namespace
-
-void DumpImageIfRequested(const rex::kernel::GuestMemory& memory) {
+void DumpImageIfRequested(const rex::kernel::GuestMemory& memory, uint32_t image_base,
+                          uint32_t image_size) {
   const std::string path = Settings().dump_image.Get();
   if (path.empty()) {
     return;
   }
-  // The PE header of the loaded image: e_lfanew at +0x3C, SizeOfImage at PE + 0x50.
-  std::vector<std::byte> header(kHeaderSize);
-  if (!memory.CopyFrom(kImageBase, header) || header[0] != std::byte{'M'} ||
-      header[1] != std::byte{'Z'}) {
-    REXLOG_WARN("nfsc: no PE image at {:08X}; nothing dumped", kImageBase);
-    return;
-  }
-  const uint32_t pe = LoadLE32(header, 0x3C);
-  if (pe + 0x54 > kHeaderSize) {
-    REXLOG_WARN("nfsc: unexpected PE header at {:08X}; nothing dumped", kImageBase);
-    return;
-  }
-  const uint32_t size = LoadLE32(header, pe + 0x50);
-  std::vector<std::byte> image(size);
-  if (!memory.CopyFrom(kImageBase, image)) {
-    REXLOG_WARN("nfsc: could not read the {} byte image at {:08X}", size, kImageBase);
+  std::vector<std::byte> image(image_size);
+  if (auto read = memory.CopyFrom(image_base, image); !read) {
+    REXLOG_WARN("nfsc: could not read the image at {:08X}: {}", image_base,
+                read.error().message);
     return;
   }
   std::ofstream file(path, std::ios::binary);
@@ -58,7 +31,7 @@ void DumpImageIfRequested(const rex::kernel::GuestMemory& memory) {
     REXLOG_WARN("nfsc: could not write the image to {}", path);
     return;
   }
-  REXLOG_INFO("nfsc: dumped image ({} bytes) to {}", size, path);
+  REXLOG_INFO("nfsc: dumped image {:08X} ({} bytes) to {}", image_base, image_size, path);
 }
 
 }  // namespace nfsc

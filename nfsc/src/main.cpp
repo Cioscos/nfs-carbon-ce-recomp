@@ -194,7 +194,7 @@ class NfscApp : public rex::app::TitleApp, public rex::ui::IUIEventListener {
         !message.empty()) {
       return rex::Err(rex::ErrorCategory::kConfig, message);
     }
-    nfsc::DumpImageIfRequested(title.GetGuestMemory());
+    nfsc::DumpImageIfRequested(title.GetGuestMemory(), REX_IMAGE_BASE, REX_IMAGE_SIZE);
     nfsc::TestCrash();
     nfsc::StartIntroSkip();
     return rex::Ok();
