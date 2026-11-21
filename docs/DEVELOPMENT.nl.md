@@ -67,6 +67,7 @@ cmake --build --preset win-amd64-release
    vanuit wat in de hookbestanden over de v7 staat (strings, constanten, imports). Adres in het
    header, flag op 1, bouwen, en controleren met de logregel van die hook. Lukt een functie
    niet, laat de flag op 0 en zet het in README en ROADMAP.
+   WIDESCREEN vraagt PRESENT en PAD vraagt MAIN_MENU; `addresses.h` stopt de build anders.
 
 Voor de v0.0.0.11 lagen de meeste functies op een vaste afstand van de v7 (+0x280 voor
 widescreen, +0x218 voor het menu); de globals waren gelijk.

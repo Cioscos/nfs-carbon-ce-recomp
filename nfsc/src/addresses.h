@@ -23,3 +23,13 @@
 #else
 #error "nfsc_edition.h defines no known NFSC_GAME_<edition>"
 #endif
+
+// Features whose hooks rely on another feature's hook.
+// The present hook (framerate.cpp) updates the 16:9 pillarbox of loading screens and movies.
+#if NFSC_FEATURE_WIDESCREEN && !NFSC_FEATURE_PRESENT
+#error "NFSC_FEATURE_WIDESCREEN needs NFSC_FEATURE_PRESENT"
+#endif
+// The main menu hook (main_menu.cpp) ends the intro skip's Start presses.
+#if NFSC_FEATURE_PAD && !NFSC_FEATURE_MAIN_MENU
+#error "NFSC_FEATURE_PAD needs NFSC_FEATURE_MAIN_MENU"
+#endif
