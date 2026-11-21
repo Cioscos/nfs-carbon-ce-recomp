@@ -8,8 +8,8 @@ import re
 import struct
 import sys
 
-BASE = 0x82000000
-CODE_START, CODE_END = 0x82110000, 0x82B35A64
+from image import BASE, code_range
+
 # D-form opcodes whose rA + SIMM forms an address: addi, lwz, lwzu, lbz, lbzu,
 # stw, stwu, stb, stbu, lhz, lhzu, lha, lhau, sth, sthu, lmw, stmw, lfs, lfsu,
 # lfd, lfdu, stfs, stfsu, stfd, stfdu
@@ -24,7 +24,8 @@ def sext16(v):
 def scan(data):
     """Yield (site, target) for every resolved lis-based address."""
     lis = {}  # reg -> (value, site)
-    for site in range(CODE_START, CODE_END, 4):
+    code_start, code_end = code_range(data)
+    for site in range(code_start, code_end, 4):
         ins = struct.unpack_from(">I", data, site - BASE)[0]
         op, rd, ra, imm = ins >> 26, (ins >> 21) & 31, (ins >> 16) & 31, ins & 0xFFFF
         if op == 15 and ra == 0:  # lis rd, imm
