@@ -36,6 +36,7 @@ add_library(nfsc_common OBJECT
     src/framerate.cpp
     src/game_path.cpp
     src/image_dump.cpp
+    src/language.cpp
     src/profiles.cpp
     src/settings.cpp
     src/settings_window.cpp

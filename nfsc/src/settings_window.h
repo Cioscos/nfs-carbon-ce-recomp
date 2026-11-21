@@ -28,6 +28,10 @@ void SetRestartHandler(std::function<void()> handler);
 // Called with true when the window opens and false when it closes.
 void SetPauseHandler(std::function<void(bool)> handler);
 
+// Sets a setting now and saves it to nfsc.toml, like Apply; for a choice made in the game
+// itself. Returns whether it was saved.
+bool SaveSetting(const std::string& name, const std::string& value);
+
 void OpenSettingsWindow();
 void ToggleSettingsWindow();
 

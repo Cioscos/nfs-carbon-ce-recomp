@@ -30,6 +30,11 @@ class NfscSettings final : public rex::SettingOwner {
               rex::kRestart);
   REX_SETTING(bool, skip_intro, false,
               "Skip the logos and intro videos at startup, up to the main menu");
+  REX_SETTING(std::string, language, "",
+              "The language chosen on the language screen at startup (v0.0.0.11): english, "
+              "french, german, italian, spanish, dutch, swedish, danish, hungarian, czech, "
+              "polish or finnish. Empty until one is chosen",
+              rex::kRestart);
   REX_SETTING(bool, pause_in_background, true,
               "Pause a race and ignore the controller while the window isn't in focus");
   REX_SETTING(std::string, aspect_ratio, "auto",

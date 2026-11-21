@@ -14,6 +14,7 @@
 #include <cstdlib>
 #include <format>
 #include <fstream>
+#include <mutex>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -45,6 +46,9 @@ std::filesystem::path g_config_path;
 std::function<void()> g_restart_handler;
 std::function<void(bool)> g_pause_handler;
 std::set<std::string> g_changed;
+// Guards g_changed and writing nfsc.toml: PC SETTINGS saves on the UI thread, the game's
+// own choices (SaveSetting) on a guest thread.
+std::mutex g_save_mutex;
 
 bool SameValue(std::string_view a, std::string_view b) {
   if (a == b)
@@ -364,6 +368,18 @@ bool SaveToConfig(const std::vector<std::pair<std::string, std::string>>& change
   return true;
 }
 
+// Saves the changes to nfsc.toml and marks them as changed in this session.
+bool SaveChanges(const std::vector<std::pair<std::string, std::string>>& changes) {
+  std::lock_guard lock(g_save_mutex);
+  for (const auto& [name, value] : changes) {
+    g_changed.insert(name);
+    for (const auto& old_name : nfsc::OldNamesOf(name)) {
+      g_changed.insert(old_name);
+    }
+  }
+  return SaveToConfig(changes);
+}
+
 class SettingsWindow final : public rex::ui::DialogBase {
  public:
   SettingsWindow() : settings_(BuildSettings()), binds_(BuildKeyBinds()) {
@@ -514,13 +530,7 @@ bool SettingsWindow::Apply() {
     changes.emplace_back(bind.name, is_default ? std::string() : bind.pending);
     ApplyLive(bind.name, is_default ? std::string() : bind.pending);
   }
-  for (const auto& [name, value] : changes) {
-    g_changed.insert(name);
-    for (const auto& old_name : nfsc::OldNamesOf(name)) {
-      g_changed.insert(old_name);
-    }
-  }
-  save_failed_ = !SaveToConfig(changes);
+  save_failed_ = !SaveChanges(changes);
   if (save_failed_) {
     return false;
   }
@@ -772,6 +782,11 @@ void SetRestartHandler(std::function<void()> handler) {
 
 void SetPauseHandler(std::function<void(bool)> handler) {
   g_pause_handler = std::move(handler);
+}
+
+bool SaveSetting(const std::string& name, const std::string& value) {
+  ApplyLive(name.c_str(), value);
+  return SaveChanges({{name, value}});
 }
 
 void OpenSettingsWindow() {

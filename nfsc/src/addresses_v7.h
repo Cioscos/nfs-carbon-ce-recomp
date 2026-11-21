@@ -6,6 +6,8 @@
 #define NFSC_FEATURE_PAD 1
 #define NFSC_FEATURE_WIDESCREEN 1
 #define NFSC_FEATURE_MAIN_MENU 1
+// language.cpp: this edition is English only, on the disc as well.
+#define NFSC_FEATURE_LANGUAGE_SELECT 0
 
 // framerate.cpp: presents a frame (calls VdSwap), once per game frame.
 #define NFSC_FN_PRESENT sub_826E3860
