@@ -1,7 +1,9 @@
 // nfsc - "PC SETTINGS" and "EXIT TO DESKTOP" options at the end of the main menu,
 // and leaving out the online options.
 //
-// Reverse engineered from default.xex (title 454107EC, v0.0.0.7):
+// Reverse engineered from default.xex (title 454107EC, v0.0.0.7); the names in
+// addresses.h are NFSC_FN_MAIN_MENU_SETUP, _MENU_ADD_OPTION, _ALLOC, _OPTION_CTOR,
+// _OPTION_REACT and _STRING_LOOKUP:
 //   sub_82642DB0  main menu setup: for each option allocates 152 bytes,
 //                 constructs it with sub_8230EC78(obj, label_hash, option_id,
 //                 &enabled, &flag) and adds it with sub_82313658(menu, obj).
@@ -21,18 +23,22 @@
 #include <rex/ppc/hook.h>
 #include <rex/logging/log_category.h>
 
+#include "addresses.h"
 #include "main_menu.h"
 #include "pad.h"
 
-REX_EXTERN(__imp__sub_82642DB0);  // main menu setup
-REX_EXTERN(__imp__sub_82313658);  // menu: add option
-REX_EXTERN(__imp__sub_821A3320);  // allocate
-REX_EXTERN(__imp__sub_8230EC78);  // option constructor
-REX_EXTERN(__imp__sub_8230EE18);  // option React()
-REX_EXTERN(__imp__sub_8231F7B8);  // language string lookup
+#if NFSC_FEATURE_MAIN_MENU
+REX_EXTERN(NFSC_IMP(NFSC_FN_MAIN_MENU_SETUP));
+REX_EXTERN(NFSC_IMP(NFSC_FN_MENU_ADD_OPTION));
+REX_EXTERN(NFSC_IMP(NFSC_FN_ALLOC));
+REX_EXTERN(NFSC_IMP(NFSC_FN_OPTION_CTOR));
+REX_EXTERN(NFSC_IMP(NFSC_FN_OPTION_REACT));
+REX_EXTERN(NFSC_IMP(NFSC_FN_STRING_LOOKUP));
+#endif
 
 namespace {
 
+#if NFSC_FEATURE_MAIN_MENU
 constexpr uint32_t kOptionsLabel = 0xD128F223;
 constexpr uint32_t kOptionsId = 7;
 constexpr uint32_t kCustomMatchLabel = 0xBD84501E;
@@ -42,6 +48,7 @@ constexpr uint32_t kOptionSize = 152;
 constexpr uint32_t kOptionLabelOffset = 44;
 constexpr uint32_t kOptionIdOffset = 48;
 constexpr uint32_t kOptionEnabledOffset = 64;
+#endif
 
 // Our options, added after OPTIONS in this order. The label hashes are our own
 // and not in the game's language tables, so the lookup hook below answers them.
@@ -61,11 +68,13 @@ std::array<MenuOption, 2> g_options = {{
 MenuOption& g_settings_option = g_options[0];
 MenuOption& g_exit_option = g_options[1];
 
+#if NFSC_FEATURE_MAIN_MENU
 std::atomic<bool> g_in_main_menu_setup{false};
 
 uint32_t LoadU32(uint8_t* base, uint32_t addr) {
   return __builtin_bswap32(*reinterpret_cast<uint32_t*>(base + addr));
 }
+#endif
 
 }  // namespace
 
@@ -81,18 +90,20 @@ void SetSettingsHandler(std::function<void()> handler) {
 
 }  // namespace nfsc
 
+#if NFSC_FEATURE_MAIN_MENU
+
 // Main menu setup: only mark the window in which options are added, so the
 // add-option hook below does not touch other menus.
-REX_HOOK_RAW(sub_82642DB0) {
+REX_HOOK_RAW(NFSC_FN_MAIN_MENU_SETUP) {
   nfsc::StopIntroSkip();
   g_in_main_menu_setup = true;
-  __imp__sub_82642DB0(ctx, base);
+  NFSC_IMP(NFSC_FN_MAIN_MENU_SETUP)(ctx, base);
   g_in_main_menu_setup = false;
 }
 
 // Add option: after the main menu's OPTIONS entry, add ours the same way the
 // game builds its own options.
-REX_HOOK_RAW(sub_82313658) {
+REX_HOOK_RAW(NFSC_FN_MENU_ADD_OPTION) {
   const uint32_t menu = ctx.r3.u32;
   const uint32_t option = ctx.r4.u32;
   // Without Xbox Live these only say "Cannot connect to Xbox Live!".
@@ -105,7 +116,7 @@ REX_HOOK_RAW(sub_82313658) {
   const bool after_options = g_in_main_menu_setup && option != 0 &&
                              LoadU32(base, option + kOptionLabelOffset) == kOptionsLabel &&
                              LoadU32(base, option + kOptionIdOffset) == kOptionsId;
-  __imp__sub_82313658(ctx, base);
+  NFSC_IMP(NFSC_FN_MENU_ADD_OPTION)(ctx, base);
   if (!after_options) {
     return;
   }
@@ -123,7 +134,7 @@ REX_HOOK_RAW(sub_82313658) {
       ctx.r4.u64 = 0;
       ctx.r5.u64 = 0;
       ctx.r6.u64 = 0;
-      __imp__sub_821A3320(ctx, base);
+      NFSC_IMP(NFSC_FN_ALLOC)(ctx, base);
       if (ctx.r3.u32 != 0) {
         std::memcpy(base + ctx.r3.u32, added.text, size);
         added.guest_text = ctx.r3.u32;
@@ -137,7 +148,7 @@ REX_HOOK_RAW(sub_82313658) {
     ctx.r4.u64 = 0;
     ctx.r5.u64 = 0;
     ctx.r6.u64 = 0;
-    __imp__sub_821A3320(ctx, base);
+    NFSC_IMP(NFSC_FN_ALLOC)(ctx, base);
     const uint32_t new_option = ctx.r3.u32;
     if (new_option == 0) {
       REXLOG_WARN("nfsc: could not allocate the {} menu option", added.text);
@@ -149,29 +160,29 @@ REX_HOOK_RAW(sub_82313658) {
     ctx.r5.u64 = added.id;
     ctx.r6.u64 = enabled_ptr;
     ctx.r7.u64 = flag_ptr;
-    __imp__sub_8230EC78(ctx, base);
+    NFSC_IMP(NFSC_FN_OPTION_CTOR)(ctx, base);
 
     ctx.r3.u64 = menu;
     ctx.r4.u64 = new_option;
-    __imp__sub_82313658(ctx, base);
+    NFSC_IMP(NFSC_FN_MENU_ADD_OPTION)(ctx, base);
     REXLOG_INFO("nfsc: added {} to the main menu", added.text);
   }
 }
 
 // Language lookup: answer our own label hashes.
-REX_HOOK_RAW(sub_8231F7B8) {
+REX_HOOK_RAW(NFSC_FN_STRING_LOOKUP) {
   for (const auto& added : g_options) {
     if (ctx.r3.u32 == added.label && added.guest_text != 0) {
       ctx.r3.u64 = added.guest_text;
       return;
     }
   }
-  __imp__sub_8231F7B8(ctx, base);
+  NFSC_IMP(NFSC_FN_STRING_LOOKUP)(ctx, base);
 }
 
 // Option React(): accepting one of ours runs its handler instead of switching
 // front-end state.
-REX_HOOK_RAW(sub_8230EE18) {
+REX_HOOK_RAW(NFSC_FN_OPTION_REACT) {
   const uint32_t option = ctx.r3.u32;
   if (ctx.r5.u32 == kAcceptMessage && base[option + kOptionEnabledOffset] != 0) {
     for (const auto& added : g_options) {
@@ -185,5 +196,7 @@ REX_HOOK_RAW(sub_8230EE18) {
       }
     }
   }
-  __imp__sub_8230EE18(ctx, base);
+  NFSC_IMP(NFSC_FN_OPTION_REACT)(ctx, base);
 }
+
+#endif  // NFSC_FEATURE_MAIN_MENU
