@@ -27,6 +27,7 @@
 #include "crash_report.h"
 #include "display.h"
 #include "game_path.h"
+#include "image_dump.h"
 #include "main_menu.h"
 #include "pad.h"
 #include "profiles.h"
@@ -193,6 +194,7 @@ class NfscApp : public rex::app::TitleApp, public rex::ui::IUIEventListener {
         !message.empty()) {
       return rex::Err(rex::ErrorCategory::kConfig, message);
     }
+    nfsc::DumpImageIfRequested(title.GetGuestMemory(), REX_IMAGE_BASE, REX_IMAGE_SIZE);
     nfsc::TestCrash();
     nfsc::StartIntroSkip();
     return rex::Ok();

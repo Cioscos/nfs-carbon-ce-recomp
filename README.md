@@ -10,8 +10,11 @@ know, but only a part of the Career has been tested. Please report what you find
 [Reporting problems](#reporting-problems)).
 
 > **No game files are included.** You need your own copy of the game: a disc image (`.iso`) of
-> the **Collector's Edition** (title ID `454107EC`, `default.xex` version 0.0.0.7) or the
-> files extracted from it. Other editions (the regular release, other regions) have a
+> the **Collector's Edition** (title ID `454107EC`) or the files extracted from it. Two
+> editions are supported: the USA one (`default.xex` version 0.0.0.7) and the European one
+> (version 0.0.0.11). Each `nfsc.exe` runs only the edition it was built for, and the
+> downloadable release is for **0.0.0.7**; for 0.0.0.11, build it from source (see
+> [Building from source](#building-from-source)). Other editions (the regular release) have a
 > different executable and will not run; the game checks this at startup.
 
 This project is not affiliated with or endorsed by Electronic Arts, Microsoft or Xbox. All
@@ -131,6 +134,8 @@ aspect_ratio = "21:9"
 - The Vulkan "immediate" present mode shows a black screen on NVIDIA; the profiles turn it
   off.
 - Smart App Control can block the executable; it is not signed.
+- The European Collector's Edition (0.0.0.11) has all features of the USA one, but has only
+  been tested up to the main menu (intro skip, widescreen, PC SETTINGS, EXIT TO DESKTOP).
 
 ## Reporting problems
 
@@ -155,8 +160,14 @@ with C++*), CMake 4, Ninja, Git, Python 3.12 and the LunarG Vulkan SDK 1.4.313 o
 its *Vulkan Memory Allocator header* component. Put `C:\Program Files\LLVM\bin` first in
 `PATH`. The project uses ReXGlue SDK 0.11.0.
 
+The build is for the edition of the `default.xex` in `game/`: CMake reads its version
+(`tools/xexid.py`) and uses the matching addresses and function list. To check that you
+build for a particular edition, add `-DNFSC_GAME_VERSION=v7` or `v11` to `cmake --preset`;
+the configure step stops if `game/default.xex` is another one. The build only needs
+`default.xex`; the game reads the rest from the disc image at startup.
+
 ```bash
-# 1. Extract the disc
+# 1. Extract the disc (or only default.xex: add default.xex at the end)
 python tools/xdvdfs.py extract "path/to/your/disc.iso" game
 
 # 2. Get, patch and build the SDK (once)

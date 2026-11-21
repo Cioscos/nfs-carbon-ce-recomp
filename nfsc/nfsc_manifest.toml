@@ -9,4 +9,6 @@ hook_sources = ["src"]
 [entrypoint]
 file_path = "../game/default.xex"
 out_directory_path = "generated/default"
-includes = ["config/functions.toml"]
+# Function boundaries of the edition being built: CMake copies config/<edition>/functions.toml
+# there (cmake/detect_edition.cmake).
+includes = ["config/selected/functions.toml"]

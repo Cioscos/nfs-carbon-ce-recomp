@@ -14,12 +14,17 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(REXGLUE_RECOMP_OPTIMIZATION_DEBUG "O2" CACHE STRING
     "Optimization of the recompiled code in Debug builds")
 
+# The game edition to build for, from game/default.xex (cmake/detect_edition.cmake).
+include(cmake/detect_edition.cmake)
+
 if (REXSDK_DIR)
   add_subdirectory("${REXSDK_DIR}" rexglue-sdk)
 else ()
   find_package(rexglue 0.11.0 REQUIRED CONFIG)
 endif ()
 rexglue_project(nfsc OUTPUT_DIR generated/default)
+# Before codegen, the function boundaries of the edition of the current game/default.xex.
+nfsc_add_select_functions("${CMAKE_CURRENT_SOURCE_DIR}/generated/default/codegen.build.stamp")
 
 # Host sources: hooks and the app's own code. src/main.cpp stays on the executable.
 # OBJECT and never STATIC: an archive drops the hook symbols (see the SDK's hooks page).
@@ -30,12 +35,14 @@ add_library(nfsc_common OBJECT
     src/display.cpp
     src/framerate.cpp
     src/game_path.cpp
+    src/image_dump.cpp
     src/profiles.cpp
     src/settings.cpp
     src/settings_window.cpp
     src/widescreen.cpp
 )
 rexglue_setup_host_library(nfsc_common)
+target_include_directories(nfsc_common PRIVATE "${NFSC_GENERATED_INCLUDE_DIR}")
 target_compile_definitions(nfsc_common PRIVATE NFSC_VERSION="${PROJECT_VERSION}")
 
 if (WIN32)
@@ -46,6 +53,7 @@ endif ()
 
 rexglue_setup_target(nfsc)
 target_link_libraries(nfsc PRIVATE nfsc_common)
+target_include_directories(nfsc PRIVATE "${NFSC_GENERATED_INCLUDE_DIR}")
 target_compile_definitions(nfsc PRIVATE NFSC_VERSION="${PROJECT_VERSION}")
 
 # File dialog for choosing the disc image or game folder on the first start, crash dumps,

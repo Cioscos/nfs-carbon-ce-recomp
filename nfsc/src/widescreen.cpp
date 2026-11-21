@@ -5,12 +5,14 @@
 // tiles drop to 2x MSAA (see the descriptor hook at the end).
 //
 // Reverse engineered from default.xex (title 454107EC, v0.0.0.7):
-//   sub_8250B0D0  picks the render size from the video mode: widescreen with a
-//                 width >= 1280 gives 1280x720, narrower 1024x576. It stores the
-//                 size twice, in 0x82C651E8/EC and 0x82C651F0/F4.
-//   sub_82500168  SetResolutionMode(state, mode): 0 = 640x480, 1 = 1024x576,
-//                 otherwise 1280x720, into the same globals. Also called later
-//                 (e.g. from sub_824E94E8), so the override is reapplied there.
+//   sub_8250B0D0  NFSC_FN_RENDER_SIZE: picks the render size from the video mode:
+//                 widescreen with a width >= 1280 gives 1280x720, narrower 1024x576. It
+//                 stores the size twice, in 0x82C651E8/EC and 0x82C651F0/F4
+//                 (nfsc::addr::kRenderSizes).
+//   sub_82500168  NFSC_FN_SET_RESOLUTION_MODE: SetResolutionMode(state, mode):
+//                 0 = 640x480, 1 = 1024x576, otherwise 1280x720, into the same globals.
+//                 Also called later (e.g. from sub_824E94E8), so the override is
+//                 reapplied there.
 
 #include <cstdint>
 #include <cstdio>
@@ -20,17 +22,20 @@
 #include <rex/ppc/hook.h>
 #include <rex/settings_registry.h>
 
+#include "addresses.h"
 #include "display.h"
 #include "settings.h"
 #include "widescreen.h"
 
 
-REX_EXTERN(__imp__sub_8250B0D0);
-REX_EXTERN(__imp__sub_82500168);
+#if NFSC_FEATURE_WIDESCREEN
+
+REX_EXTERN(NFSC_IMP(NFSC_FN_RENDER_SIZE));
+REX_EXTERN(NFSC_IMP(NFSC_FN_SET_RESOLUTION_MODE));
 
 namespace {
 
-constexpr uint32_t kRenderSizes[][2] = {{0x82C651E8, 0x82C651EC}, {0x82C651F0, 0x82C651F4}};
+using nfsc::addr::kRenderSizes;
 
 uint32_t LoadU32(uint8_t* base, uint32_t addr) {
   return __builtin_bswap32(*reinterpret_cast<uint32_t*>(base + addr));
@@ -68,24 +73,24 @@ void ApplyRenderSize(uint8_t* base) {
 
 }  // namespace
 
-REX_HOOK_RAW(sub_8250B0D0) {
-  __imp__sub_8250B0D0(ctx, base);
+REX_HOOK_RAW(NFSC_FN_RENDER_SIZE) {
+  NFSC_IMP(NFSC_FN_RENDER_SIZE)(ctx, base);
   ApplyRenderSize(base);
 }
 
-REX_HOOK_RAW(sub_82500168) {
-  __imp__sub_82500168(ctx, base);
+REX_HOOK_RAW(NFSC_FN_SET_RESOLUTION_MODE) {
+  NFSC_IMP(NFSC_FN_SET_RESOLUTION_MODE)(ctx, base);
   ApplyRenderSize(base);
 }
 
-// View layout: sub_824FFAB0 fills an object with viewport and tile rectangles
-// for the HD layout: x1 = 1280 for full-screen rects, the 4x MSAA tile set
-// {0,0,1280,256} {0,256,1280,512} {0,512,1280,720} at +356 (and again at +740),
-// a 2-tile set with 368-row tiles at +292. Widen every 1280.
-REX_EXTERN(__imp__sub_824FFAB0);
-REX_HOOK_RAW(sub_824FFAB0) {
+// View layout: NFSC_FN_VIEW_LAYOUT (sub_824FFAB0 in v0.0.0.7) fills an object with
+// viewport and tile rectangles for the HD layout: x1 = 1280 for full-screen rects, the
+// 4x MSAA tile set {0,0,1280,256} {0,256,1280,512} {0,512,1280,720} at +356 (and again
+// at +740), a 2-tile set with 368-row tiles at +292. Widen every 1280.
+REX_EXTERN(NFSC_IMP(NFSC_FN_VIEW_LAYOUT));
+REX_HOOK_RAW(NFSC_FN_VIEW_LAYOUT) {
   const uint32_t obj = ctx.r3.u32;
-  __imp__sub_824FFAB0(ctx, base);
+  NFSC_IMP(NFSC_FN_VIEW_LAYOUT)(ctx, base);
   const int32_t width = nfsc::Settings().render_width.Get();
   if (width <= 0 || width == 1280) {
     return;
@@ -101,13 +106,13 @@ REX_HOOK_RAW(sub_824FFAB0) {
   REXLOG_INFO("nfsc: widened {} view layout values to {}", replaced, width);
 }
 
-// Render target descriptors: sub_82505998 registers a 208-byte descriptor
-// (+8 width, +12 height, +36 MSAA: 0 none, 1 = 2x, 2 = 4x) in a table at
+// Render target descriptors: NFSC_FN_RT_DESCRIPTOR (sub_82505998 in v0.0.0.7) registers
+// a 208-byte descriptor (+8 width, +12 height, +36 MSAA: 0 none, 1 = 2x, 2 = 4x) in a table at
 // 0x82D5B250. The main scene uses 1280x256 tiles with 4x MSAA, which fill the
 // 10 MiB EDRAM exactly; wider tiles overflow it. When widening, drop such
 // descriptors to 2x MSAA so the same tile layout fits again.
-REX_EXTERN(__imp__sub_82505998);
-REX_HOOK_RAW(sub_82505998) {
+REX_EXTERN(NFSC_IMP(NFSC_FN_RT_DESCRIPTOR));
+REX_HOOK_RAW(NFSC_FN_RT_DESCRIPTOR) {
   const uint32_t desc = ctx.r5.u32;
   if (nfsc::Settings().render_width.Get() > 1280 && desc != 0) {
     constexpr uint64_t kEdramBytes = 10 * 1024 * 1024;
@@ -120,7 +125,7 @@ REX_HOOK_RAW(sub_82505998) {
       REXLOG_INFO("nfsc: {}x{} render target 4x -> 2x MSAA to fit EDRAM", width, height);
     }
   }
-  __imp__sub_82505998(ctx, base);
+  NFSC_IMP(NFSC_FN_RT_DESCRIPTOR)(ctx, base);
 }
 
 namespace {
@@ -129,8 +134,8 @@ namespace {
 // loading_boot.fng) and movies (FEAnyMovie.fng) are drawn stretched across the
 // whole render width, unlike the other FE packages. While one is active, present
 // the frame at 16:9, which undoes the stretch and pillarboxes it. The FE package
-// list hangs off the FE manager at 0x82C64ACC: *manager + 216 is the list, +12
-// its first package; per package +8 next, +12 name, +32 active (see
+// list hangs off the FE manager at 0x82C64ACC (nfsc::addr::kFeManager): *manager + 216
+// is the list, +12 its first package; per package +8 next, +12 name, +32 active (see
 // sub_822FDEE8).
 bool StartsWith(const char* text, const char* prefix) {
   for (; *prefix; ++text, ++prefix) {
@@ -142,7 +147,7 @@ bool StartsWith(const char* text, const char* prefix) {
 }
 
 bool SixteenByNineScreenActive(uint8_t* base) {
-  const uint32_t manager = LoadU32(base, 0x82C64ACC);
+  const uint32_t manager = LoadU32(base, nfsc::addr::kFeManager);
   if (!manager) {
     return false;
   }
@@ -169,9 +174,12 @@ bool SixteenByNineScreenActive(uint8_t* base) {
 
 }  // namespace
 
+#endif  // NFSC_FEATURE_WIDESCREEN
+
 namespace nfsc {
 
-void UpdatePresentAspect(uint8_t* base) {
+void UpdatePresentAspect([[maybe_unused]] uint8_t* base) {
+#if NFSC_FEATURE_WIDESCREEN
   if (Settings().render_width.Get() <= 1280) {
     return;
   }
@@ -187,6 +195,7 @@ void UpdatePresentAspect(uint8_t* base) {
       }
     }
   }
+#endif
 }
 
 void ApplyWidescreen() {
@@ -207,6 +216,12 @@ void ApplyWidescreen() {
   if (width <= 1280 && !ChosenByPlayer("nfsc.render_width")) {
     return;
   }
+#if !NFSC_FEATURE_WIDESCREEN
+  // Without the render size hooks a wider video mode would only stretch the 16:9 image.
+  REXLOG_INFO("nfsc: aspect ratio {} is not available for this edition; rendering at 16:9",
+              aspect);
+  return;
+#endif
   // 2x MSAA tiles of 256 lines fit the 10 MiB EDRAM up to 2560 pixels.
   if (width > 2560) {
     REXLOG_WARN("nfsc: aspect_ratio {} needs {} px, limited to 2560", aspect, width);

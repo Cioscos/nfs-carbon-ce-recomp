@@ -20,6 +20,7 @@
 #include <rex/logging/log_category.h>
 #include <rex/settings_registry.h>
 
+#include "nfsc_edition.h"
 #include "settings.h"
 
 #if defined(_WIN32)
@@ -32,15 +33,9 @@ namespace nfsc {
 
 namespace {
 
-// Need for Speed: Carbon Collector's Edition, default.xex version 0.0.0.7
-// ("NfsMWCollectorsRelease.pe"). The first page descriptor's digest starts the
-// SHA-1 chain over all pages of the image, so it identifies the exact executable.
-constexpr uint32_t kTitleId = 0x454107EC;
-constexpr uint32_t kVersion = 0x00000007;
-constexpr std::array<uint8_t, 20> kFirstPageDigest = {
-    0x97, 0x4B, 0x32, 0x29, 0x9E, 0xF1, 0xC5, 0x8D, 0xF9, 0x46,
-    0xDA, 0xDA, 0xA0, 0xCD, 0x03, 0x3A, 0x97, 0x2F, 0x91, 0x48,
-};
+// The editions are in nfsc_edition.h (from cmake/editions.cmake). The first page
+// descriptor's digest starts the SHA-1 chain over all pages of the image, so it identifies
+// the exact executable.
 
 constexpr const char* kRememberedPathFile = "game_path.txt";
 
@@ -325,24 +320,46 @@ std::string CheckEdition(rex::filesystem::IFileSystem& file_system) {
   }
   REXLOG_INFO("nfsc: default.xex title {:08X}, version {:08X}, first page digest {}",
               xex.title_id, xex.version, Hex(xex.first_page_digest.data(), 20));
-  if (xex.title_id == kTitleId && xex.version == kVersion &&
-      xex.first_page_digest == kFirstPageDigest) {
+  const auto matches = [&xex](const KnownEdition& edition) {
+    return xex.title_id == kTitleId && xex.version == edition.version &&
+           xex.first_page_digest == edition.digest;
+  };
+  const KnownEdition& built = kKnownEditions[kBuiltEdition];
+  if (matches(built)) {
     return {};
   }
   if (Settings().skip_edition_check.Get()) {
     REXLOG_WARN("nfsc: default.xex is not the expected one; starting anyway");
     return {};
   }
-  const uint32_t version = xex.version;
-  std::string message = std::format(
-      "This build only runs Need for Speed: Carbon Collector's Edition for the Xbox 360 "
-      "(title ID 454107EC, version 0.0.0.7).\n\n"
-      "The game data you chose has title ID {:08X}, version {}.{}.{}.{}{}.\n\n"
+  const KnownEdition* other = nullptr;
+  for (const KnownEdition& edition : kKnownEditions) {
+    if (&edition != &built && matches(edition)) {
+      other = &edition;
+    }
+  }
+  constexpr const char* kChooseAgain =
       "Delete game_path.txt in your user data folder to choose a different disc image or "
-      "folder at the next start.",
-      xex.title_id, (version >> 28) & 0xF, (version >> 24) & 0xF, (version >> 8) & 0xFFFF,
-      version & 0xFF,
-      xex.title_id == kTitleId && xex.version == kVersion ? " but a different executable" : "");
+      "folder at the next start.";
+  std::string message;
+  if (other) {
+    message = std::format(
+        "This build of nfsc.exe was compiled for Need for Speed: Carbon {}. The game data you "
+        "chose is {}.\n\n"
+        "To play it, build nfsc.exe from source with that game's default.xex (see README).\n\n"
+        "{}",
+        built.name, other->name, kChooseAgain);
+  } else {
+    const uint32_t version = xex.version;
+    message = std::format(
+        "This build only runs Need for Speed: Carbon {} for the Xbox 360 (title ID {:08X}).\n\n"
+        "The game data you chose has title ID {:08X}, version {}.{}.{}.{}{}.\n\n{}",
+        built.name, kTitleId, xex.title_id, (version >> 28) & 0xF, (version >> 24) & 0xF,
+        (version >> 8) & 0xFFFF, version & 0xFF,
+        xex.title_id == kTitleId && xex.version == built.version ? " but a different executable"
+                                                                  : "",
+        kChooseAgain);
+  }
   REXLOG_ERROR("nfsc: {}", message);
   return message;
 }

@@ -5,10 +5,11 @@ Usage: python tools/re/callers.py <image.bin> <init.cpp> <addr> [<addr> ...]
 import bisect
 import re
 import struct
+import pathlib
 import sys
 
-BASE = 0x82000000
-CODE_START, CODE_END = 0x82110000, 0x82B35A64
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from image import BASE, code_range  # noqa: E402
 
 
 def main():
@@ -17,7 +18,8 @@ def main():
     targets = {int(t, 16) for t in targets}
     starts = sorted(int(m.group(1), 16) for m in
                     re.finditer(r"\{ 0x(8[0-9A-F]{7}), ", open(init_cpp).read()))
-    for site in range(CODE_START, CODE_END, 4):
+    code_start, code_end = code_range(init_cpp)
+    for site in range(code_start, code_end, 4):
         ins = struct.unpack_from(">I", data, site - BASE)[0]
         if ins >> 26 != 18 or ins & 2:  # b/bl with relative target only
             continue

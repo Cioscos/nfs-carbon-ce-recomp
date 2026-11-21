@@ -54,6 +54,10 @@ class NfscSettings final : public rex::SettingOwner {
   REX_SETTING(bool, log_fps, false,
               "Log the game's frame rate (frames presented) once per second, with the slowest "
               "frame of that second");
+  REX_SETTING(std::string, dump_image, "",
+              "Write the loaded game image to this file at startup, for the reverse "
+              "engineering tools in tools/re/",
+              rex::kNoSave);
 };
 
 // The instance the app registers.

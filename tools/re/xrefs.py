@@ -6,10 +6,12 @@ Usage: python tools/re/xrefs.py <image.bin> <init.cpp> <addr> [<addr> ...]
 import bisect
 import re
 import struct
+import pathlib
 import sys
 
-BASE = 0x82000000
-CODE_START, CODE_END = 0x82110000, 0x82B35A64
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from image import BASE, code_range  # noqa: E402
+
 # D-form opcodes whose rA + SIMM forms an address: addi, lwz, lwzu, lbz, lbzu,
 # stw, stwu, stb, stbu, lhz, lhzu, lha, lhau, sth, sthu, lmw, stmw, lfs, lfsu,
 # lfd, lfdu, stfs, stfsu, stfd, stfdu
@@ -21,10 +23,10 @@ def sext16(v):
     return v - 0x10000 if v & 0x8000 else v
 
 
-def scan(data):
+def scan(data, code_start, code_end):
     """Yield (site, target) for every resolved lis-based address."""
     lis = {}  # reg -> (value, site)
-    for site in range(CODE_START, CODE_END, 4):
+    for site in range(code_start, code_end, 4):
         ins = struct.unpack_from(">I", data, site - BASE)[0]
         op, rd, ra, imm = ins >> 26, (ins >> 21) & 31, (ins >> 16) & 31, ins & 0xFFFF
         if op == 15 and ra == 0:  # lis rd, imm
@@ -53,7 +55,7 @@ def main():
     data = open(image, "rb").read()
     targets = {int(t, 16) for t in targets}
     starts = functions(init_cpp)
-    for site, target in scan(data):
+    for site, target in scan(data, *code_range(init_cpp)):
         if target in targets:
             i = bisect.bisect_right(starts, site) - 1
             func = starts[i] if i >= 0 else 0

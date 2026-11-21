@@ -1,7 +1,8 @@
 // nfsc - per-frame work on the guest's present, and an optional frame rate log.
 //
 // Reverse engineered from default.xex (title 454107EC, v0.0.0.7):
-//   sub_826E3860  presents a frame (it calls VdSwap); called once per game frame.
+//   sub_826E3860  NFSC_FN_PRESENT: presents a frame (it calls VdSwap); called once per
+//                 game frame.
 
 #include <algorithm>
 #include <chrono>
@@ -10,8 +11,11 @@
 #include <rex/ppc/hook.h>
 #include <rex/logging/log_category.h>
 
+#include "addresses.h"
 #include "settings.h"
 #include "widescreen.h"
+
+#if NFSC_FEATURE_PRESENT
 
 namespace {
 
@@ -38,11 +42,13 @@ void LogFrameRate() {
 
 }  // namespace
 
-REX_EXTERN(__imp__sub_826E3860);
-REX_HOOK_RAW(sub_826E3860) {
+REX_EXTERN(NFSC_IMP(NFSC_FN_PRESENT));
+REX_HOOK_RAW(NFSC_FN_PRESENT) {
   nfsc::UpdatePresentAspect(base);
   if (nfsc::Settings().log_fps.Get()) {
     LogFrameRate();
   }
-  __imp__sub_826E3860(ctx, base);
+  NFSC_IMP(NFSC_FN_PRESENT)(ctx, base);
 }
+
+#endif  // NFSC_FEATURE_PRESENT
