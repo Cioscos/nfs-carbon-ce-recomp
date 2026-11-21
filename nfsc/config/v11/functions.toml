@@ -1,0 +1,5 @@
+# Manual function boundaries for default.xex (title 454107EC, v0.0.0.11, European
+# Collector's Edition, NfsMWCollectorsEuropeEngRelease.pe).
+# Each entry fixes a function the automatic analysis missed or split wrongly.
+
+[functions]

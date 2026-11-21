@@ -14,6 +14,9 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(REXGLUE_RECOMP_OPTIMIZATION_DEBUG "O2" CACHE STRING
     "Optimization of the recompiled code in Debug builds")
 
+# The game edition to build for, from game/default.xex (cmake/detect_edition.cmake).
+include(cmake/detect_edition.cmake)
+
 if (REXSDK_DIR)
   add_subdirectory("${REXSDK_DIR}" rexglue-sdk)
 else ()
@@ -36,6 +39,7 @@ add_library(nfsc_common OBJECT
     src/widescreen.cpp
 )
 rexglue_setup_host_library(nfsc_common)
+target_include_directories(nfsc_common PRIVATE "${NFSC_GENERATED_INCLUDE_DIR}")
 target_compile_definitions(nfsc_common PRIVATE NFSC_VERSION="${PROJECT_VERSION}")
 
 if (WIN32)
@@ -46,6 +50,7 @@ endif ()
 
 rexglue_setup_target(nfsc)
 target_link_libraries(nfsc PRIVATE nfsc_common)
+target_include_directories(nfsc PRIVATE "${NFSC_GENERATED_INCLUDE_DIR}")
 target_compile_definitions(nfsc PRIVATE NFSC_VERSION="${PROJECT_VERSION}")
 
 # File dialog for choosing the disc image or game folder on the first start, crash dumps,

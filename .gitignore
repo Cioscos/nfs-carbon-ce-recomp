@@ -2,6 +2,10 @@
 *.iso
 game/
 nfsc/generated/default/
+image*.bin
+
+# --- Chosen by CMake for the edition being built ---
+nfsc/config/selected/
 screenshots/
 filelist.txt
 
