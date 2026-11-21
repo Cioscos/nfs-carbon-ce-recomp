@@ -1,5 +1,9 @@
 # Manual function boundaries for default.xex (title 454107EC, v0.0.0.11, European
 # Collector's Edition, NfsMWCollectorsEuropeEngRelease.pe).
 # Each entry fixes a function the automatic analysis missed or split wrongly.
+#
+# None needed so far: the codegen for this edition reports no warnings, the generated
+# code has no unresolved calls, jumps or out-of-function branches, and the game runs to
+# the main menu with no errors in the log.
 
 [functions]
