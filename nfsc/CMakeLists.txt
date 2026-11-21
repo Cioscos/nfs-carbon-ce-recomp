@@ -23,6 +23,8 @@ else ()
   find_package(rexglue 0.11.0 REQUIRED CONFIG)
 endif ()
 rexglue_project(nfsc OUTPUT_DIR generated/default)
+# Before codegen, the function boundaries of the edition of the current game/default.xex.
+nfsc_add_select_functions("${CMAKE_CURRENT_SOURCE_DIR}/generated/default/codegen.build.stamp")
 
 # Host sources: hooks and the app's own code. src/main.cpp stays on the executable.
 # OBJECT and never STATIC: an archive drops the hook symbols (see the SDK's hooks page).

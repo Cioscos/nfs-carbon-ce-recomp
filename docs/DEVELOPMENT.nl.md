@@ -20,6 +20,7 @@ v0.0.0.7) en Europa (v0.0.0.11). Elke build is voor één editie: die van `game/
 | `nfsc/` | Het recompilatie-project |
 | `nfsc/cmake/editions.cmake` | De bekende edities: versie, digest en naam |
 | `nfsc/cmake/detect_edition.cmake` | Leest `game/default.xex`, kiest de editie (`NFSC_GAME_VERSION`: `auto`, `v7`, `v11`) en maakt `nfsc_edition.h` |
+| `nfsc/cmake/edition_select.cmake`, `select_functions.cmake` | De keuze van de editie (gedeeld), en de buildstap die vóór codegen de `functions.toml` van de huidige `default.xex` kopieert: na een andere `default.xex` draait codegen anders eerst met die van de vorige editie |
 | `nfsc/config/<versie>/functions.toml` | Handmatige functiegrenzen per editie; CMake kopieert de gekozen naar `config/selected/` |
 | `nfsc/src/addresses_<versie>.h` | Adressen van de hooks per editie, en per functie een flag (`NFSC_FEATURE_*`): met 0 blijven de hooks buiten de build |
 
