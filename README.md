@@ -39,6 +39,10 @@ you own.
 - A race pauses when you open PC SETTINGS or switch to another window, and goes on when you
   come back.
 - With Remix the game skips the logos and intro videos and goes straight to the main menu.
+- European edition (0.0.0.11): the game's own language screen at startup, with the twelve
+  languages on the disc (English, French, German, Italian, Spanish, Dutch, Swedish, Danish,
+  Hungarian, Czech, Polish, Finnish). The original executable is English only. Your choice
+  is remembered; without a choice the game goes on after 10 seconds. The videos stay English.
 
 ## Requirements
 
@@ -112,7 +116,8 @@ versions without a scope (`profile`, `fullscreen`, ...) still work.
 | `ui.fullscreen` | `true`, `false` | |
 | `ui.monitor` | `1`, `2`, ... | Monitor to open on; `0` is the main one |
 | `gpu.driver` | `vulkan`, `d3d12` | Graphics API (restart) |
-| `nfsc.skip_intro` | `true`, `false` | Skip logos and videos up to the main menu |
+| `nfsc.skip_intro` | `true`, `false` | Skip logos and videos up to the main menu; also the language screen once a language is chosen |
+| `nfsc.language` | `english`, `french`, `german`, `italian`, `spanish`, `dutch`, `swedish`, `danish`, `hungarian`, `czech`, `polish`, `finnish` | European edition: the language chosen on the language screen, saved by the game (restart) |
 | `nfsc.pause_in_background` | `true`, `false` | Pause a race and ignore the controller while in the background |
 | `nfsc.portable` | `true`, `false` | Savegames and shader cache next to `nfsc.exe` (restart) |
 | `app.cache_root` | path | Shader cache folder (restart) |
@@ -136,6 +141,7 @@ aspect_ratio = "21:9"
 - Smart App Control can block the executable; it is not signed.
 - The European Collector's Edition (0.0.0.11) has all features of the USA one, but has only
   been tested up to the main menu (intro skip, widescreen, PC SETTINGS, EXIT TO DESKTOP).
+  The languages other than English have only been tested up to the main menu, in Italian.
 
 ## Reporting problems
 

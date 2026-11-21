@@ -343,6 +343,23 @@ optioneel **Remix**-profiel voor moderne hardware. Renderer: **Vulkan**.
   overslaan (tot de alias-vraag), 21:9 (render 1680x720, 17 layoutwaarden, 2x MSAA), PC SETTINGS
   en EXIT TO DESKTOP, geen online-opties. Races, framerate-limieten, pauze bij focusverlies en de
   controller nog niet: checklist bij de gebruiker.
+- **Taalkeuze (21-11, `language.cpp`, `NFSC_FEATURE_LANGUAGE_SELECT`, alleen v11).** De
+  executable is de "EuropeEng"-build en kent alleen Engels: de init doet `SetLanguage(0)`, de
+  Xbox 360-bootflow (`sub_824DA910`) voegt stage 7 (`LS_LangSelect.fng`) nooit toe en de
+  constructor van dat scherm (`sub_826832C8`) voegt alleen taal 0 toe. Regio, consoletaal
+  (`XGetLanguage`, `XGetGameRegion`) en de savegame spelen geen rol. De disc heeft wel de
+  teksten van 13 talen (`NFS/ZDIR.BIN`); de video's zijn alleen Engels. Hooks: stage 7 vóór
+  de logo's, de andere talen op de disc in het scherm (zonder Mexicaans: dat heet ook
+  ESPAÑOL), het scherm start op de huidige taal, een gekozen taal gaat naar `nfsc.language`
+  in `nfsc.toml` en de init gebruikt die. Het scherm van de game gaat na 10 s vanzelf verder
+  met de huidige taal. Met `skip_intro` komt het scherm alleen zolang er geen taal gekozen is.
+  Getest met een leeg profiel en een eigen `--app.config_file`: Italiaans kiezen (log,
+  `nfsc.toml`), opnieuw starten (scherm op ITALIANO, alias-vraag en hoofdmenu Italiaans), met
+  `skip_intro` (geen scherm, Italiaans), onbekende taal in `nfsc.toml` (waarschuwing, Engels).
+  Niet getest: races en Career in een andere taal, de andere talen verder dan het keuzescherm,
+  PC SETTINGS → Apply na de wijziging in het opslaan (`SaveChanges`).
+  Bekend: wie in de laatste seconde vóór de 10 s kiest, slaat het eerste EA-logo over (het
+  scherm gaat dan twee keer naar de volgende stage).
 - Bij afsluiten via EXIT TO DESKTOP één regel `E gpu indirect buffer failed to execute a packet`
   na de title-terminate; niet vergeleken met de v7.
 

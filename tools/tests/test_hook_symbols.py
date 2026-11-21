@@ -1,7 +1,8 @@
 """The hooks expand to the same guest symbols, in the same order, for v0.0.0.7 as before the
 addresses moved into nfsc/src/addresses_v7.h (BASELINE, commit 788e127), and to none of the v7
 symbols for other editions. Each NFSC_FN_* of addresses_v7.h is also checked against
-V7_FUNCTIONS.
+V7_FUNCTIONS. language.cpp (the language select screen, v0.0.0.11 only) has no hooks for
+v0.0.0.7.
 
 When a v0.0.0.7 hook is added or changed on purpose, update V7_FUNCTIONS and move BASELINE to
 the commit that makes the change.
@@ -101,6 +102,16 @@ class HookSymbolsTest(unittest.TestCase):
             with self.subTest(name):
                 now = set(expand((SRC / name).read_text(), "v11", include_addresses=True))
                 self.assertFalse(now & v7, "v7 addresses in the v11 build")
+
+    def test_language_select_hooks_v11_only(self):
+        text = (SRC / "language.cpp").read_text()
+        self.assertEqual(expand(text, "v7", include_addresses=True), [])
+        v11 = set(expand(text, "v11", include_addresses=True))
+        self.assertTrue(v11, "no language hooks for v11")
+        v7 = set()
+        for name in HOOK_FILES:
+            v7 |= set(expand(baseline_text(name), "v7", include_addresses=False))
+        self.assertFalse(v11 & v7, "v7 addresses in the v11 build")
 
 
 if __name__ == "__main__":
