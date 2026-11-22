@@ -26,6 +26,12 @@
 // The hooks add stage 7 before the others, add the other languages to the screen, start the
 // screen on the current language, save an accepted language to nfsc.language and make the
 // init use it instead of English.
+//
+// The disc has the text of those languages, but the speech of English only. The audio code
+// names its speech files after the language (nisaudio_it, copspeech_it and UCAPAudio_it for
+// Italian) and plays nothing when they are missing: a cutscene in Italian had the idling
+// engine and no voices, music or effects. The hook on the choice of the speech files makes
+// it English for a language without them.
 
 #include <atomic>
 #include <cctype>
@@ -39,6 +45,7 @@
 #include <rex/ppc/hook.h>
 
 #include "addresses.h"
+#include "pad.h"
 #include "settings.h"
 #include "settings_window.h"
 
@@ -48,6 +55,9 @@ REX_EXTERN(NFSC_IMP(NFSC_FN_SET_LANGUAGE));
 REX_EXTERN(NFSC_IMP(NFSC_FN_BOOT_STAGES));
 REX_EXTERN(NFSC_IMP(NFSC_FN_BOOT_ADD_STAGE));
 REX_EXTERN(NFSC_IMP(NFSC_FN_LANGUAGE_SCREEN_CTOR));
+REX_EXTERN(NFSC_IMP(NFSC_FN_LANGUAGE_SCREEN_DTOR));
+REX_EXTERN(NFSC_IMP(NFSC_FN_LANGUAGE_ISO_CODE));
+REX_EXTERN(NFSC_IMP(NFSC_FN_SPEECH_LANGUAGE));
 REX_EXTERN(NFSC_IMP(NFSC_FN_MENU_FINISH));
 REX_EXTERN(NFSC_IMP(NFSC_FN_MENU_SELECT));
 REX_EXTERN(NFSC_IMP(NFSC_FN_LANGUAGE_OPTION_CTOR));
@@ -78,6 +88,9 @@ constexpr uint32_t kCtorFlagOffset = 112;
 constexpr uint32_t kCtorEnabledOffset = 113;
 constexpr uint32_t kCtorLabelOffset = 144;
 constexpr size_t kCtorLabelSize = 64;
+// A stack frame of ours for a file name, with the name above the callee's part of it.
+constexpr uint32_t kNameFrameSize = 256;
+constexpr uint32_t kNameFrameOffset = 112;
 
 // The init's SetLanguage call is the first one.
 std::atomic<bool> g_init_done{false};
@@ -87,6 +100,10 @@ std::atomic<bool> g_in_screen_ctor{false};
 
 uint32_t LoadU32(uint8_t* base, uint32_t addr) {
   return __builtin_bswap32(*reinterpret_cast<uint32_t*>(base + addr));
+}
+
+void StoreU32(uint8_t* base, uint32_t addr, uint32_t value) {
+  *reinterpret_cast<uint32_t*>(base + addr) = __builtin_bswap32(value);
 }
 
 const char* GuestString(uint8_t* base, uint32_t addr) {
@@ -127,6 +144,26 @@ uint32_t EntryByName(uint8_t* base, std::string_view name) {
 bool OnDisc(PPCContext& ctx, uint8_t* base, uint32_t entry) {
   ctx.r3.u64 = LoadU32(base, entry + kEntryGlobalFileOffset);
   NFSC_IMP(NFSC_FN_FILE_EXISTS)(ctx, base);
+  return ctx.r3.u32 != 0;
+}
+
+// Whether the cutscene speech of the current language is on the disc.
+bool SpeechOnDisc(PPCContext& ctx, uint8_t* base) {
+  NFSC_IMP(NFSC_FN_LANGUAGE_ISO_CODE)(ctx, base);
+  const uint32_t iso_code = ctx.r3.u32;
+  if (iso_code == 0) {
+    return false;
+  }
+  const uint32_t caller_frame = ctx.r1.u32;
+  const uint32_t frame = caller_frame - kNameFrameSize;
+  const uint32_t name = frame + kNameFrameOffset;
+  *reinterpret_cast<uint32_t*>(base + frame) = __builtin_bswap32(caller_frame);
+  std::snprintf(reinterpret_cast<char*>(base + name), kNameFrameSize - kNameFrameOffset,
+                "sound\\streams\\nisaudio_%s.idx", GuestString(base, iso_code));
+  ctx.r1.u64 = frame;
+  ctx.r3.u64 = name;
+  NFSC_IMP(NFSC_FN_FILE_EXISTS)(ctx, base);
+  ctx.r1.u64 = caller_frame;
   return ctx.r3.u32 != 0;
 }
 
@@ -209,6 +246,36 @@ REX_HOOK_RAW(NFSC_FN_SET_LANGUAGE) {
   }
 }
 
+// The choice of the speech files: English's when the disc has none for the current language.
+// The function reads the current language itself, so it sees English for the call; the
+// game's text stays in the chosen language.
+REX_HOOK_RAW(NFSC_FN_SPEECH_LANGUAGE) {
+  const uint32_t current = LoadU32(base, nfsc::addr::kCurrentLanguage);
+  if (current == kEnglish) {
+    NFSC_IMP(NFSC_FN_SPEECH_LANGUAGE)(ctx, base);
+    return;
+  }
+  // The language last looked for on the disc, plus one, and whether its speech was there.
+  static std::atomic<uint32_t> checked{0};
+  static std::atomic<bool> checked_on_disc{false};
+  if (checked != current + 1) {
+    const PPCContext entry = ctx;
+    checked_on_disc = SpeechOnDisc(ctx, base);
+    ctx = entry;
+    checked = current + 1;
+    if (!checked_on_disc) {
+      REXLOG_INFO("nfsc: no speech for language {} on the disc, using English speech", current);
+    }
+  }
+  if (checked_on_disc) {
+    NFSC_IMP(NFSC_FN_SPEECH_LANGUAGE)(ctx, base);
+    return;
+  }
+  StoreU32(base, nfsc::addr::kCurrentLanguage, kEnglish);
+  NFSC_IMP(NFSC_FN_SPEECH_LANGUAGE)(ctx, base);
+  StoreU32(base, nfsc::addr::kCurrentLanguage, current);
+}
+
 // Boot stages: the language screen first. With the intro skipped it only comes up until a
 // language is chosen.
 REX_HOOK_RAW(NFSC_FN_BOOT_STAGES) {
@@ -221,11 +288,20 @@ REX_HOOK_RAW(NFSC_FN_BOOT_STAGES) {
   NFSC_IMP(NFSC_FN_BOOT_STAGES)(ctx, base);
 }
 
-// Language screen constructor: only mark it, for the hook below.
+// Language screen constructor: mark it, for the hook below. The intro skip's Start presses
+// stop until the screen is gone: Start does nothing on it but play the menu's sound, at
+// every press.
 REX_HOOK_RAW(NFSC_FN_LANGUAGE_SCREEN_CTOR) {
+  nfsc::PauseIntroSkip(true);
   g_in_screen_ctor = true;
   NFSC_IMP(NFSC_FN_LANGUAGE_SCREEN_CTOR)(ctx, base);
   g_in_screen_ctor = false;
+}
+
+REX_HOOK_RAW(NFSC_FN_LANGUAGE_SCREEN_DTOR) {
+  NFSC_IMP(NFSC_FN_LANGUAGE_SCREEN_DTOR)(ctx, base);
+  REXLOG_INFO("nfsc: language screen closed");
+  nfsc::PauseIntroSkip(false);
 }
 
 // End of a menu's options: on the language screen, first add the other languages on the

@@ -363,6 +363,67 @@ optioneel **Remix**-profiel voor moderne hardware. Renderer: **Vulkan**.
 - Bij afsluiten via EXIT TO DESKTOP één regel `E gpu indirect buffer failed to execute a packet`
   na de title-terminate; niet vergeleken met de v7.
 
+## Prestaties op SDK v0.11 (22-11)
+
+Aanleiding: 80–120 fps in races op een Ryzen 7 7800X3D met RTX 4080 (2560×1440, 165 Hz,
+Remix 2×), met de GPU op 40%. Gemeten met `nfsc.log_fps` en een eigen sampling-profiler
+(`tools/perf/sampler.cpp`), Quick Race Main Street, zelfde toetsenreeks per run.
+
+| | voor | na |
+|---|---|---|
+| Hoofdmenu | 106 fps | 157 |
+| Race, alleen op de startlijn | 82,5 | 157 |
+| Start met acht auto's (aftellen) | 55 | 154 (minimum 138) |
+| Rijden (20 s gas, met een botsing) | niet gemeten | 150–157 |
+
+157 is de grens van de NVIDIA-driver op dit systeem (G-SYNC met lage latentie beperkt present
+op 165 Hz tot 157 fps; de driver slaapt in `vkQueuePresentKHR`).
+
+- **Oorzaak 1: frames werden afgerond op hele vblanks.** Met `gpu.vsync` (SDK-standaard) komt
+  de vblank op de refresh rate en wacht de game er bij elke present op (`WAIT_REG_MEM` op een
+  vlag die zijn vblank-handler wist, gepold met slaapjes van 1 ms). Een frame van 6,2 ms op
+  165 Hz wacht op de tweede vblank: 82,5 fps; de start met acht auto's (13 ms) op de derde:
+  55 fps. De game-threads zelf hebben ~1 ms (logica) en ~2 ms (render) per frame nodig en
+  stonden 80–90% te wachten; de GPU-thread sliep 31% van de tijd in die wait. Daarbij hield de
+  present-thread in FIFO de queue-mutex vast (10% van de GPU-thread).
+  Nu: `gpu.vsync` uit in beide profielen, de limiet in onze present-hook (`framerate.cpp`), en
+  SDK-patch 0004 geeft een vblank zodra de game erom vraagt. Present-modus is dan mailbox.
+- **Oorzaak 2: registers één voor één.** Carbon zet shaderconstanten met type-0-pakketten; die
+  gingen per register door een virtuele `WriteRegister` met een `switch` over alle registers.
+  19% van de GPU-thread, na patch 0004 5%.
+- **Oorzaak 3: pagina's beveiligen.** `VirtualProtect` na elke upload: 17% van de GPU-thread bij
+  de start met acht auto's. Hot pages zijn terug als patch 0005: 122 → 154 fps op die plek.
+- Klein: een vector-allocatie per `RequestRanges` (9%), een string-instelling per draw (2%).
+- Nagelopen: race-klok realtime (10,38 s in 10,41 s), video's gelijk aan de oude timing (zelfde
+  beelden op dezelfde tijdstippen, Origineel en Remix), Origineel exact 30 fps, D3D12 start en
+  haalt in het menu dezelfde 157, beeld in menu's, kaart, autokeuze, race-intro, start en
+  rijden zonder fouten.
+- Niet getest: AMD/Intel (geen mailbox op AMD: dan FIFO relaxed), een scherm zonder VRR (de
+  limiet loopt daar niet gelijk met het scherm; `gpu.vsync = true` geeft het oude gedrag),
+  Career, splitscreen, lange sessies met hot pages.
+- Het taalscherm maakte met `nfsc.skip_intro` (standaard in Remix) tien seconden lang een
+  herhalend geluid: de Start-pulsen van de intro-skip (`pad.cpp`) laten het menu bij elke druk
+  zijn geluid afspelen. Ze pauzeren nu zolang het scherm bestaat (constructor tot destructor,
+  `PauseIntroSkip`) en gaan daarna verder, met een nieuwe tijdslimiet.
+- Cutscenes zonder geluid (alleen een stationair draaiende motor) in een andere taal dan
+  Engels: de disc heeft tekst in twaalf talen, maar spraak alleen in het Engels, en de game
+  zoekt zijn spraakbestanden op taal (`nisaudio_it` in `sound\streams`, `copspeech_it` en
+  `UCAPAudio_it` in `Sound\Speech`). Ontbreken ze, dan speelt de hele geluidsband van een
+  cutscene niet. De hook op de keuze van die bestanden (`NFSC_FN_SPEECH_LANGUAGE`,
+  `language.cpp`) laat de game Engels kiezen als `nisaudio_<taal>.idx` niet op de disc staat;
+  de tekst blijft in de gekozen taal.
+  Gemeten op de eerste cutscene van de carrière: Italiaans daarna gelijk aan Engels. Had niets
+  met de prestatiewijzigingen te maken (zelfde geluid met `gpu.vsync` aan, uit en met vblanks
+  op 1000 Hz).
+- Meetvalkuil: de race-intro (NIS) heeft willekeurige varianten, dus het geluid van twee runs
+  vergelijken zegt niets over een instelling. De video's bij het opstarten zijn wel elke keer
+  gelijk; hun geluid is hetzelfde met `gpu.vsync` aan en uit.
+- Bleek geen fout van de game: "savegame niet geladen" in de benchmarks kwam door het
+  testscript (verkeerde `app.user_root`).
+- Open: de twee game-threads draaien elk ~95% in wachtlussen (`KeDelayExecutionThread(0)` en
+  de fence-lus van D3D); `DeferredCommandBuffer::Execute` (15%) zou naar een eigen thread
+  kunnen.
+
 ## Onderzocht
 
 - **"Vlekjes" op het eindscherm** (29-10, opgelost 30-10): geen renderfout maar een fout in onze
@@ -388,7 +449,8 @@ optioneel **Remix**-profiel voor moderne hardware. Renderer: **Vulkan**.
       Bekend: `pad.cpp` blokkeert alleen speler 1 tijdens PC SETTINGS en op de achtergrond, en
       PC SETTINGS luistert alleen naar speler 1.
 
-- [ ] **Hot pages op SDK v0.11** (17-11). De overgezette versie van v0.10-patch 0007 maakte
+- [x] **Hot pages op SDK v0.11** (17-11; klaar 22-11 als SDK-patch 0005, zie "Prestaties op
+      SDK v0.11"). De overgezette versie van v0.10-patch 0007 maakte
       het menu traag (~30 fps, frames van 550 ms); weggelaten. Uitzoeken waarom (mogelijk de
       globale watches per pagina) en of het naast hoisting nog iets oplevert.
 - [ ] **Betrouwbare racemeting.** Een route die niet op tijd maar op beeld of log wacht, of

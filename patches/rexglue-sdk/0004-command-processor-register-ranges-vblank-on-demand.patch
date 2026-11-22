@@ -1,0 +1,197 @@
+diff --git a/src/gpu/xenos/command_processor.cpp b/src/gpu/xenos/command_processor.cpp
+index 249f7f08..1c06372d 100644
+--- a/src/gpu/xenos/command_processor.cpp
++++ b/src/gpu/xenos/command_processor.cpp
+@@ -9,7 +9,9 @@
+  * @modified    Tom Clay, 2026 - Adapted for ReXGlue runtime
+  */
+ 
++#include <atomic>
+ #include <bit>
++#include <vector>
+ #include <algorithm>
+ #include <chrono>
+ #include <cinttypes>
+@@ -357,6 +359,22 @@ u32 CommandProcessor::ReadRegisterValue(u32 index) const {
+   return it != extended_register_values_.end() ? it->second : 0;
+ }
+ 
++namespace {
++
++// GetRegisterInfo is a switch over every register; this is one bit per register.
++bool IsKnownRegister(u32 index) {
++  static const std::vector<bool> known = [] {
++    std::vector<bool> bits(xenos::RegisterFile::kRegisterCount);
++    for (u32 i = 0; i < xenos::RegisterFile::kRegisterCount; ++i) {
++      bits[i] = xenos::RegisterFile::GetRegisterInfo(i) != nullptr;
++    }
++    return bits;
++  }();
++  return known[index];
++}
++
++}  // namespace
++
+ void CommandProcessor::WriteRegister(u32 index, u32 value) {
+   xenos::RegisterFile& regs = *register_file_;
+   if (index >= xenos::RegisterFile::kRegisterCount) {
+@@ -370,7 +388,7 @@ void CommandProcessor::WriteRegister(u32 index, u32 value) {
+ 
+   // Volatile for the WAIT_REG_MEM loop.
+   const_cast<volatile u32&>(regs.values[index]) = value;
+-  if (!regs.GetRegisterInfo(index)) {
++  if (!IsKnownRegister(index)) [[unlikely]] {
+     REXGPU_WARN_ONCE(unknown_write_once_, index, "GPU: Write to unknown register ({:04X} = {:08X})",
+                      index, value);
+   }
+@@ -698,10 +716,13 @@ bool CommandProcessor::ExecutePacketType0(memory::RingBuffer* reader, u32 packet
+ 
+   u32 base_index = (packet & 0x7FFF);
+   u32 write_one_reg = (packet >> 15) & 0x1;
+-  for (u32 m = 0; m < count; m++) {
+-    u32 reg_data = reader->ReadAndSwap<u32>();
+-    u32 target_index = write_one_reg ? base_index : base_index + m;
+-    WriteRegister(target_index, reg_data);
++  if (write_one_reg) {
++    for (u32 m = 0; m < count; m++) {
++      WriteRegister(base_index, reader->ReadAndSwap<u32>());
++    }
++  } else {
++    // As a range, so that a backend can take a block of shader constants at once.
++    WriteRegisterRangeFromRing(reader, base_index, count);
+   }
+ 
+   return true;
+@@ -971,6 +992,7 @@ bool CommandProcessor::ExecutePacketType3_WAIT_REG_MEM(memory::RingBuffer* reade
+   bool is_memory = (wait_info & 0x10) != 0;
+ 
+   bool matched = false;
++  bool vblank_delivered = false;
+   u32 attempts = 0;
+   const auto back_off = [&attempts] {
+     constexpr u32 kYields = 16;
+@@ -1030,7 +1052,14 @@ bool CommandProcessor::ExecutePacketType3_WAIT_REG_MEM(memory::RingBuffer* reade
+       if (wait >= 0x100) {
+         PrepareForWait();
+         if (!graphics_system_->IsVSyncEnabled()) {
+-          back_off();
++          // A title waits here for its vertical blank handler to clear a flag in memory.
++          // Without vsync, give it that blank at once, a single time per wait.
++          if (is_memory && !vblank_delivered) {
++            vblank_delivered = true;
++            graphics_system_->DeliverVblankNow();
++          } else {
++            back_off();
++          }
+         } else {
+           rex::platform::SleepFor(std::chrono::milliseconds(wait / 0x100));
+         }
+diff --git a/src/gpu/xenos/shared_memory.cpp b/src/gpu/xenos/shared_memory.cpp
+index 7db4abed..1446ce0d 100644
+--- a/src/gpu/xenos/shared_memory.cpp
++++ b/src/gpu/xenos/shared_memory.cpp
+@@ -325,7 +325,9 @@ bool SharedMemory::RequestRanges(const std::pair<u32, u32>* ranges, size_t count
+     return true;
+   }
+ 
+-  std::vector<std::pair<u32, u32>> merged_ranges;
++  // Called for every draw: keep the storage instead of allocating each time.
++  thread_local std::vector<std::pair<u32, u32>> merged_ranges;
++  merged_ranges.clear();
+   merged_ranges.reserve(count);
+   for (size_t i = 0; i < count; ++i) {
+     u32 start = ranges[i].first;
+diff --git a/src/gpu/xenos/vulkan/pipeline_cache.cpp b/src/gpu/xenos/vulkan/pipeline_cache.cpp
+index d476c48e..e8f25947 100644
+--- a/src/gpu/xenos/vulkan/pipeline_cache.cpp
++++ b/src/gpu/xenos/vulkan/pipeline_cache.cpp
+@@ -78,6 +78,9 @@ VulkanPipelineCache::VulkanPipelineCache(VulkanCommandProcessor& command_process
+       guest_shader_vertex_stages_(guest_shader_vertex_stages) {}
+ 
+ void VulkanPipelineCache::AnalyzeShaderUCode(Shader& shader) {
++  if (shader.IsUcodeAnalyzed()) {
++    return;  // Called for every draw: don't read the setting (a lock and a string copy).
++  }
+   shader.AnalyzeUcode(ucode_disasm_buffer_,
+                       command_processor_.GetXenosSettings().dump_shaders.Get());
+ }
+diff --git a/src/gpu/xenos/xenos_graphics_driver_base.cpp b/src/gpu/xenos/xenos_graphics_driver_base.cpp
+index 6fe403e1..e5cd13d1 100644
+--- a/src/gpu/xenos/xenos_graphics_driver_base.cpp
++++ b/src/gpu/xenos/xenos_graphics_driver_base.cpp
+@@ -160,15 +160,25 @@ Result<void> XenosGraphicsDriverBase::AttachTitle(const TitleInfo& info, IPhysic
+     u64 vsync_interval_ticks =
+         std::max(static_cast<u64>(1),
+                  static_cast<u64>(static_cast<f64>(guest_tick_frequency) / refresh_rate_hz));
+-    u64 no_vsync_interval_ticks = std::max(static_cast<u64>(1), guest_tick_frequency / 1000);
+     const f64 nanoseconds_per_tick = 1e9 / static_cast<f64>(guest_tick_frequency);
+     constexpr std::chrono::milliseconds kLongestSleep{50};
+     u64 last_frame_time = Clock::QueryGuestTickCount();
+     while (vsync_worker_running_) {
+-      u64 interval_ticks = IsVSyncEnabled() ? vsync_interval_ticks : no_vsync_interval_ticks;
++      // The blanks come at the refresh rate with and without vsync: a title may count them as
++      // time. Without vsync the command processor delivers one early when the title waits for
++      // it (DeliverVblankNow), and this timer then leaves one out.
++      const u64 interval_ticks = vsync_interval_ticks;
+       DeliverVblanks(
+           Clock::QueryGuestTickCount(), last_frame_time, interval_ticks, kMaxVblankCatchUp,
+-          [this] { MarkVblank(); }, [this] { return vsync_worker_running_.load(); });
++          [this] {
++            std::lock_guard lock(vblank_mutex_);
++            if (early_vblanks_ != 0) {
++              --early_vblanks_;
++              return;
++            }
++            MarkVblank();
++          },
++          [this] { return vsync_worker_running_.load(); });
+       const u64 current_time = Clock::QueryGuestTickCount();
+       const u64 next_time = last_frame_time + interval_ticks;
+       const u64 remaining_ticks = next_time > current_time ? next_time - current_time : 0;
+@@ -301,6 +311,16 @@ void XenosGraphicsDriverBase::MarkVblank() {
+   DispatchInterruptCallback(0, 2);
+ }
+ 
++void XenosGraphicsDriverBase::DeliverVblankNow() {
++  std::lock_guard lock(vblank_mutex_);
++  MarkVblank();
++  // Not more than the timer catches up on: a title that presents faster than the refresh
++  // rate gets its timer blanks back soon after it stops presenting.
++  if (early_vblanks_ < kMaxVblankCatchUp) {
++    ++early_vblanks_;
++  }
++}
++
+ void XenosGraphicsDriverBase::ClearCaches() {
+   command_processor_->CallInThread([&]() { command_processor_->ClearCaches(); });
+ }
+diff --git a/src/gpu/xenos/xenos_graphics_driver_base.h b/src/gpu/xenos/xenos_graphics_driver_base.h
+index 4892b3eb..f4e1ccd7 100644
+--- a/src/gpu/xenos/xenos_graphics_driver_base.h
++++ b/src/gpu/xenos/xenos_graphics_driver_base.h
+@@ -112,6 +112,14 @@ class REX_GPU_XENOS_API XenosGraphicsDriverBase : public IXenosGraphicsDriver,
+    */
+   bool IsVSyncEnabled() const;
+ 
++  /**
++   * Delivers a vertical blank now, from the command processor thread. Without vsync a title
++   * that waits for the next blank in its command stream gets it at once, instead of idling
++   * until the timer's next tick. The timer leaves one blank out for each early one, so the
++   * blanks still come at the refresh rate on average.
++   */
++  void DeliverVblankNow();
++
+   /**
+    * Reads gpu.resolution_scale_x.
+    *
+@@ -161,6 +169,10 @@ class REX_GPU_XENOS_API XenosGraphicsDriverBase : public IXenosGraphicsDriver,
+   void MarkVblank();
+ 
+   TitleInfo title_info_;
++  // One vertical blank at a time: the timer thread, or the command processor asking for one.
++  std::mutex vblank_mutex_;
++  /** Blanks DeliverVblankNow delivered ahead of the timer. Guarded by vblank_mutex_. */
++  u32 early_vblanks_ = 0;
+   IPhysicalMemory* physical_memory_ = nullptr;
+   IPhysicalWriteWatch* write_watch_ = nullptr;
+   IGuestInterrupts* guest_interrupts_ = nullptr;

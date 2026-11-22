@@ -57,6 +57,16 @@
 #define NFSC_FN_BOOT_ADD_STAGE sub_82323298
 // The constructor in the screen table entry of "LS_LangSelect.fng" (0x82B77D90) calls it.
 #define NFSC_FN_LANGUAGE_SCREEN_CTOR sub_826832C8
+// ISOCodes::GetLanguageISOCode ("ISOCodes::GetLanguageISOCode: unknown language %d" follows
+// its strings): the two letters of the current language, "en", "fr", "de", "it" and so on.
+// The speech files have the same letters in their names: sound\streams\nisaudio_it.idx.
+#define NFSC_FN_LANGUAGE_ISO_CODE sub_82451C40
+// Picks the speech files of the current language: a switch on kCurrentLanguage (ids 1-14,
+// anything else is English) that stores the choice at r3+148. The loaders of the speech
+// files (sub_8254BDA8 for nisaudio, sub_8254A1F8 for copspeech) take their file names from it.
+#define NFSC_FN_SPEECH_LANGUAGE sub_8225A2A8
+// The screen's deleting destructor, vtable +0 (the constructor stores the vtable, 0x820BB55C).
+#define NFSC_FN_LANGUAGE_SCREEN_DTOR sub_82683400
 // Called by that constructor after its loop; vtable +28 of the screen.
 #define NFSC_FN_MENU_FINISH sub_82313918
 // Called by NFSC_FN_MENU_FINISH with index 0, on the option list at screen+40.

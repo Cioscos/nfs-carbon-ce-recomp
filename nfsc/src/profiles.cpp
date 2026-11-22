@@ -44,10 +44,21 @@ constexpr std::array kProfileValues = {
     // can't divide shows some frames longer than others (120 fps on 144 Hz repeats every
     // fifth). Race timers run in real time at 30, 60, 120 and 240.
     ProfileValue{"nfsc.frame_rate_limit", "30", "monitor"},
+    // With gpu.vsync on, the SDK delivers the title's vertical blanks at the frame rate limit
+    // and the game waits for one at every present, so a frame that takes slightly longer than
+    // one interval waits for the second blank: 82 fps (165 / 2) in races on a 165 Hz monitor
+    // with the GPU at 40%. Off: blanks come when the game asks, the limit is kept at the
+    // game's present (framerate.cpp) and the picture is presented without blocking (mailbox).
+    ProfileValue{"gpu.vsync", "false", "false"},
     // The SDK forgets every CPU-uploaded page at the end of each frame by default (a
     // workaround for other games), so all vertex data used in a frame is uploaded again in
     // the next. Carbon doesn't need it; off was ~3% faster on SDK v0.10.
     ProfileValue{"gpu.xenos.clear_memory_page_state", "false", "false"},
+    // Carbon writes vertex data right before each draw, about a thousand pages per frame in a
+    // race. Protecting every page again after its upload, and the access violation at the next
+    // write, took 17% of the GPU thread; these pages are compared with a copy instead (SDK
+    // patch 0005). Eight cars on the grid: 122 fps without, 154 with.
+    ProfileValue{"gpu.xenos.shared_memory_hot_pages", "true", "true"},
     // Immediate presentation showed only black on NVIDIA (RTX 5080, layered DXGI present)
     // on SDK v0.10; mailbox and FIFO work.
     ProfileValue{"gpu.vulkan.allow_present_mode_immediate", "false", "false"},

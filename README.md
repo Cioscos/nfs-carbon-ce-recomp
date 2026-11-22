@@ -116,8 +116,9 @@ versions without a scope (`profile`, `fullscreen`, ...) still work.
 | `ui.fullscreen` | `true`, `false` | |
 | `ui.monitor` | `1`, `2`, ... | Monitor to open on; `0` is the main one |
 | `gpu.driver` | `vulkan`, `d3d12` | Graphics API (restart) |
+| `gpu.vsync` | `false`, `true` | `true` makes the game wait for a whole screen refresh at every frame: no skipped refreshes while the PC keeps up, but a frame that is slightly late waits for the next one (82 instead of 120 fps on a 165 Hz monitor) |
 | `nfsc.skip_intro` | `true`, `false` | Skip logos and videos up to the main menu; also the language screen once a language is chosen |
-| `nfsc.language` | `english`, `french`, `german`, `italian`, `spanish`, `dutch`, `swedish`, `danish`, `hungarian`, `czech`, `polish`, `finnish` | European edition: the language chosen on the language screen, saved by the game (restart) |
+| `nfsc.language` | `english`, `french`, `german`, `italian`, `spanish`, `dutch`, `swedish`, `danish`, `hungarian`, `czech`, `polish`, `finnish` | European edition: the language chosen on the language screen, saved by the game (restart). The disc has speech in English only: voices and cutscene audio stay English |
 | `nfsc.pause_in_background` | `true`, `false` | Pause a race and ignore the controller while in the background |
 | `nfsc.portable` | `true`, `false` | Savegames and shader cache next to `nfsc.exe` (restart) |
 | `app.cache_root` | path | Shader cache folder (restart) |
