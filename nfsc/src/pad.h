@@ -30,5 +30,8 @@ void SetPadBlockedInBackground(bool blocked);
 // skipping the videos and logos by hand comes down to.
 void StartIntroSkip();
 void StopIntroSkip();
+// No Start pulses while paused, for a screen the player has to answer: there every pulse only
+// makes the menu's sound. Resuming restarts the time limit of the skip.
+void PauseIntroSkip(bool paused);
 
 }  // namespace nfsc

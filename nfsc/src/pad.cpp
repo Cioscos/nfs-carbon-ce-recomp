@@ -41,9 +41,15 @@ std::atomic<bool> g_captured{false};
 std::atomic<bool> g_background{false};
 std::atomic<bool> g_releasing{false};
 std::atomic<bool> g_intro_skip{false};
+std::atomic<bool> g_intro_skip_paused{false};
 
 #if NFSC_FEATURE_PAD
-std::chrono::steady_clock::time_point g_intro_skip_start;
+// steady_clock ticks: the pad hook reads it on the game's thread.
+std::atomic<std::chrono::steady_clock::rep> g_intro_skip_start{0};
+
+std::chrono::steady_clock::rep Now() {
+  return std::chrono::steady_clock::now().time_since_epoch().count();
+}
 
 uint16_t LoadU16(const uint8_t* p) {
   return uint16_t(p[0] << 8 | p[1]);
@@ -78,7 +84,7 @@ uint32_t FoldSticks(uint32_t buttons, int16_t lx, int16_t ly, int16_t rx, int16_
 void PulseStart(uint8_t* state) {
   static uint32_t reads = 0;
   const bool down = (reads++ / kIntroPulseReads) % 2 == 0;
-  if (std::chrono::steady_clock::now() - g_intro_skip_start > kIntroSkipTimeLimit) {
+  if (std::chrono::steady_clock::duration(Now() - g_intro_skip_start) > kIntroSkipTimeLimit) {
     g_intro_skip = false;
     return;
   }
@@ -107,7 +113,7 @@ REX_HOOK_RAW(NFSC_FN_PAD_GET_STATE) {
   }
   const bool captured = g_captured || g_background;
   if (!captured && !g_releasing) {
-    if (g_intro_skip) {
+    if (g_intro_skip && !g_intro_skip_paused) {
       PulseStart(base + state);
     }
     return;
@@ -161,7 +167,7 @@ void StartIntroSkip() {
     return;
   }
 #if NFSC_FEATURE_PAD
-  g_intro_skip_start = std::chrono::steady_clock::now();
+  g_intro_skip_start = Now();
   g_intro_skip = true;
 #else
   // The Start pulses go through the pad hook.
@@ -171,6 +177,15 @@ void StartIntroSkip() {
 
 void StopIntroSkip() {
   g_intro_skip = false;
+}
+
+void PauseIntroSkip(bool paused) {
+#if NFSC_FEATURE_PAD
+  if (!paused) {
+    g_intro_skip_start = Now();
+  }
+#endif
+  g_intro_skip_paused = paused;
 }
 
 }  // namespace nfsc
