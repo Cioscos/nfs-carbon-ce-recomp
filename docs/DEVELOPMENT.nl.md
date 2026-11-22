@@ -75,7 +75,8 @@ widescreen, +0x218 voor het menu); de globals waren gelijk.
 ## Lokale aanpassingen aan de SDK
 
 Staan als patch in `patches/rexglue-sdk/` (de submodule wijst naar ongewijzigd upstream).
-Overgezet naar SDK v0.11.0 op 17-11; van de tien patches voor v0.10 zijn er drie over.
+Overgezet naar SDK v0.11.0 op 17-11; van de tien patches voor v0.10 waren er drie over. Op
+22-11 kwamen 0004 en 0005 erbij (prestaties, zie ROADMAP).
 
 - `0001-filesystem-disc-image-game-root.patch` (`file_system`, `title_app`): `title.game_root`
   mag ook een disc-image (`.iso`) zijn; dat wordt dan als `kDiscImage` gemount in plaats van
@@ -97,6 +98,30 @@ Overgezet naar SDK v0.11.0 op 17-11; van de tien patches voor v0.10 zijn er drie
   uitgerekt over de bredere render. Opvolger van 0004/0005, die video's in de kernel
   herkenden aan open `.wmv`-bestanden.
 
+- `0004-command-processor-register-ranges-vblank-on-demand.patch` (command processor, shared
+  memory, Vulkan pipeline cache): kleine dingen op het pad van elke draw. (1) Een type-0-pakket
+  schrijft zijn registers als reeks in plaats van één voor één; Carbon zet zo zijn
+  shaderconstanten, en per register liep een `switch` over alle registers (`GetRegisterInfo`,
+  alleen voor een waarschuwing; nu één bit per register). (2) Zonder `gpu.vsync` krijgt een
+  `WAIT_REG_MEM` op geheugen meteen een vblank (`DeliverVblankNow`) in plaats van te wachten op
+  de volgende tik van de timer. De timer loopt ook zonder vsync op de refresh rate (de SDK
+  zelf gaat dan naar 1000 Hz) en slaat voor elke vervroegde vblank één tik over, zodat de game
+  gemiddeld evenveel vblanks ziet als het scherm er heeft; de timer en de command processor
+  delen een mutex, zodat er één vblank-interrupt tegelijk loopt. (3) `RequestRanges` alloceerde bij elke aanroep
+  een vector. (4) `AnalyzeShaderUCode` las bij elke draw een string-instelling (lock en kopie).
+- `0005-shared-memory-hot-pages.patch` (shared memory, Vulkan): instelling
+  `gpu.xenos.shared_memory_hot_pages` (standaard uit, onze profielen zetten hem aan). Pagina's
+  die drie frames op rij geüpload worden, worden niet meer schrijfbeveiligd; bij elke aanvraag
+  worden ze vergeleken met een schaduwkopie van wat het laatst is geüpload. Dat scheelt per
+  upload een `VirtualProtect` en per schrijfactie van de game een access violation. Een hot
+  pagina is nooit geldig, nooit beveiligd en nooit bewaakt: een watch op zo'n pagina maakt hem
+  weer normaal (`page_watch_count_` per pagina), net als een GPU-schrijfactie, 120 frames
+  zonder wijziging of 120 frames zonder aanvraag. Opvolger van v0.10-patch 0007, opnieuw
+  geschreven: de watch-lock van v0.11 is niet recursief, dus beveiligen kan niet onder de lock.
+  Een hot pagina die bewaakt wordt, houdt daarom zijn schaduwkopie tot `FlushWatchedHotPages`
+  hem (zonder lock) beveiligt en daarna vergelijkt; een schrijfactie in de tussentijd vuurt de
+  watches alsnog.
+
 Vervallen bij de overstap:
 
 - 0001 (codegen: code na `bctr`-tail calls claimen): upstream opgelost (`a86428b04`, uit onze
@@ -104,8 +129,8 @@ Vervallen bij de overstap:
 - 0002 (`guest_vblank_rate`): de vblank-timer volgt nu `ui.video_mode_refresh_rate` (24–240,
   na herstart). `nfsc.frame_rate_limit` zet die.
 - 0003 (`log_swap_rate`): niet meer nodig; `nfsc.log_fps` logt de fps.
-- 0007 (hot pages): overgezet, maar op v0.11 zakte het menu naar ~30 fps met frames van 550 ms.
-  Weggelaten; oorzaak niet onderzocht.
+- 0007 (hot pages): de eerste overzetting liet het menu op v0.11 naar ~30 fps zakken met
+  frames van 550 ms. Opnieuw geschreven als 0005 (zie boven).
 - 0010 (mutex in `InputSystem`): het invoersysteem van v0.11 heeft eigen locks.
 - AMD FidelityFX (CAS, FSR) zit niet meer in de SDK; Remix presenteert nu bilineair.
 
@@ -133,6 +158,8 @@ F1, F4) gaat altijd voor.
 | Anisotrope filtering (`gpu.anisotropic_override`) | -1 (wat de game vraagt) | 5 (16×) |
 | Native 2× MSAA | aan | aan |
 | Framerate (`nfsc.frame_rate_limit`) | 30 fps (zoals de 360) | `monitor` |
+| Vblank-wachten van de SDK (`gpu.vsync`) | uit | uit |
+| Hot pages (`gpu.xenos.shared_memory_hot_pages`) | aan | aan |
 | Intro overslaan (`nfsc.skip_intro`) | uit | aan |
 
 In zij-aan-zij vergelijkingen (menu, race-start) was `fbo` niet van `fsi` te onderscheiden; hoge
@@ -141,12 +168,27 @@ Remix: `gpu.vulkan.render_target_path = "fsi"` (onder `[gpu.vulkan]`: `render_ta
 
 ### Hogere framerate
 
-`--nfsc.frame_rate_limit=120` (of 240) verhoogt de cap via de refresh rate die de game ziet
-(`ui.video_mode_refresh_rate`, na herstart); de simulatie rekent met de klok, dus
-race-klok en physics blijven realtime. Op een RTX 5080 haalt een race op 120 gemiddeld ~117
-fps (minimum ~80–90), op 240 ~125 (menu ~175), bij ~50% GPU; de grens is de emulatie van de
-GPU-commando's op de CPU (metingen op SDK v0.10). `--nfsc.log_fps=true` logt elke seconde de fps
-en het traagste frame.
+`--nfsc.frame_rate_limit=120` (of 240) verhoogt de cap (na herstart); de simulatie rekent met
+de klok, dus race-klok en physics blijven realtime. De limiet zit in onze present-hook
+(`framerate.cpp`): elke present begint één frame-interval na de vorige. De profielen zetten
+`gpu.vsync` uit; daarmee geeft de SDK de game een vblank zodra die erom vraagt, in plaats van op
+de refresh rate van `ui.video_mode_refresh_rate` (die zetten we nog wel, voor wat de game leest).
+Met `gpu.vsync = true` wacht de game weer bij elk frame op een hele vblank en staat onze limiet
+uit: een frame dat net te laat is wacht dan op de volgende (165 Hz: 82,5 fps bij 6,5 ms per
+frame, 55 fps bij 13 ms), en de FIFO-present blokkeert de GPU-thread op de queue-mutex.
+
+Op een 7800X3D met RTX 4080 (2560×1440, 165 Hz, Remix 2×): hoofdmenu, race en de start met acht
+auto's 150–157 fps (zie ROADMAP voor de metingen ervoor en erna). 157 is daar de grens van de
+NVIDIA-driver zelf (G-SYNC met lage latentie: refresh − refresh²/3600). De metingen op een
+RTX 5080 met SDK v0.10: race op 120 gemiddeld ~117 fps (minimum ~80–90), op 240 ~125 (menu
+~175). `--nfsc.log_fps=true` logt elke seconde de fps en het traagste frame.
+
+Profileren: `tools/perf/sampler.cpp` is een sampling-profiler zonder adminrechten
+(`sampler <pid> <seconden> <interval_ms> <uit.txt> [threads] [functie,...]`). Voor
+functienamen de SDK en de game linken met PDB's: `-DCMAKE_SHARED_LINKER_FLAGS_RELEASE` en
+`-DCMAKE_EXE_LINKER_FLAGS_RELEASE` op `-Wl,/DEBUG,/OPT:REF,/OPT:ICF` (zelfde code, alleen een
+PDB erbij). GDI-screenshots zijn zwart met present-modus mailbox; Desktop Duplication werkt
+(`ffmpeg -f lavfi -i ddagrab`).
 Eerder is op 240 en hoger een paar keer een GPU-fout opgetreden in de race (NVIDIA Xid 13, zie
 ROADMAP); sinds SDK-patch 0006 niet meer gezien (5 runs op 240, ~17 op 1000).
 

@@ -1,0 +1,515 @@
+diff --git a/src/gpu/xenos/shared_memory.cpp b/src/gpu/xenos/shared_memory.cpp
+index 1446ce0d..e0db19c5 100644
+--- a/src/gpu/xenos/shared_memory.cpp
++++ b/src/gpu/xenos/shared_memory.cpp
+@@ -18,6 +18,7 @@
+ #include <rex/bit.h>
+ #include <rex/platform/perf.h>
+ #include <rex/logging/log_category.h>
++#include "gpu/xenos/physical_memory.h"
+ #include "gpu/xenos/shared_memory.h"
+ #include <rex/math.h>
+ #include <rex/memory.h>
+@@ -84,11 +85,238 @@ void SharedMemory::ShutdownCommon() {
+   system_page_flags_valid_and_gpu_written_.clear();
+   system_page_flags_valid_and_gpu_written_.shrink_to_fit();
+   num_system_page_flags_ = 0;
++
++  hot_pages_enabled_ = false;
++  hot_page_count_ = 0;
++  hot_pages_ = {};
++  page_last_request_frame_ = {};
++  page_last_change_frame_ = {};
++  page_upload_streak_ = {};
++  page_watch_count_ = {};
++  page_shadow_slot_ = {};
++  hot_page_shadow_slabs_.clear();
++  hot_page_shadow_free_slots_ = {};
++  hot_page_shadow_slots_used_ = 0;
++  watched_hot_pages_ = {};
++}
++
++void SharedMemory::EnableHotPages() {
++  const u32 page_count = kBufferSize >> page_size_log2_;
++  auto lock = AcquireLock();
++  hot_pages_.assign(num_system_page_flags_, 0);
++  page_last_request_frame_.assign(page_count, 0);
++  page_last_change_frame_.assign(page_count, 0);
++  page_upload_streak_.assign(page_count, 0);
++  page_watch_count_.assign(page_count, 0);
++  page_shadow_slot_.assign(page_count, kNoShadow);
++  hot_pages_enabled_ = true;
++}
++
++u8* SharedMemory::GetHotPageShadow(u32 page) {
++  const u32 slot = page_shadow_slot_[page];
++  REX_ASSERT(slot != kNoShadow);
++  return hot_page_shadow_slabs_[slot >> kHotPageSlabPagesLog2].get() +
++         (static_cast<size_t>(slot & ((1u << kHotPageSlabPagesLog2) - 1)) << page_size_log2_);
++}
++
++u32 SharedMemory::AllocateHotPageShadow() {
++  if (!hot_page_shadow_free_slots_.empty()) {
++    const u32 slot = hot_page_shadow_free_slots_.back();
++    hot_page_shadow_free_slots_.pop_back();
++    return slot;
++  }
++  if ((hot_page_shadow_slots_used_ >> kHotPageSlabPagesLog2) >= hot_page_shadow_slabs_.size()) {
++    hot_page_shadow_slabs_.push_back(std::make_unique_for_overwrite<u8[]>(
++        static_cast<size_t>(1) << (kHotPageSlabPagesLog2 + page_size_log2_)));
++  }
++  return hot_page_shadow_slots_used_++;
++}
++
++void SharedMemory::MakePageNotHot(u32 page, bool free_shadow) {
++  hot_pages_[page >> 6] &= ~(static_cast<u64>(1) << (page & 63));
++  --hot_page_count_;
++  page_upload_streak_[page] = 0;
++  if (free_shadow) {
++    hot_page_shadow_free_slots_.push_back(page_shadow_slot_[page]);
++    page_shadow_slot_[page] = kNoShadow;
++  }
++}
++
++void SharedMemory::AdvanceHotPageFrame() {
++  if (!hot_pages_enabled_) {
++    return;
++  }
++  FlushWatchedHotPages();
++  ++hot_page_frame_;
++  if (!hot_page_count_ || (hot_page_frame_ % kHotPageSweepFrames)) {
++    return;
++  }
++  // Hot pages are compared, and made normal when static, only when they are requested: here
++  // the ones that are no longer requested.
++  for (u32 block = 0; block < hot_pages_.size(); ++block) {
++    u64 bits = hot_pages_[block];
++    u32 bit;
++    while (rex::bit_scan_forward(bits, &bit)) {
++      bits &= ~(static_cast<u64>(1) << bit);
++      const u32 page = (block << 6) + bit;
++      if (hot_page_frame_ - page_last_request_frame_[page] > kHotPageUnchangedFrames) {
++        MakePageNotHot(page, true);
++      }
++    }
++  }
++}
++
++bool SharedMemory::CopyPagesForUpload(u8* dst, u32 page_first, u32 page_count) {
++  const u8* source = GetPhysicalForRead(physical_memory_, page_first << page_size_log2_,
++                                        page_count << page_size_log2_);
++  if (!source) {
++    return false;
++  }
++  if (!hot_pages_enabled_ || !hot_page_count_) {
++    std::memcpy(dst, source, static_cast<size_t>(page_count) << page_size_log2_);
++    return true;
++  }
++  const size_t page_size = static_cast<size_t>(1) << page_size_log2_;
++  u32 run_first = 0;
++  const auto copy_run = [&](u32 run_end) {
++    if (run_end > run_first) {
++      std::memcpy(dst + (static_cast<size_t>(run_first) << page_size_log2_),
++                  source + (static_cast<size_t>(run_first) << page_size_log2_),
++                  static_cast<size_t>(run_end - run_first) << page_size_log2_);
++    }
++  };
++  for (u32 i = 0; i < page_count; ++i) {
++    if (!IsPageHot(page_first + i)) {
++      continue;
++    }
++    copy_run(i);
++    // What the comparison at the next request is made against.
++    std::memcpy(dst + (static_cast<size_t>(i) << page_size_log2_),
++                GetHotPageShadow(page_first + i), page_size);
++    run_first = i + 1;
++  }
++  copy_run(page_count);
++  return true;
++}
++
++void SharedMemory::FilterHotPageUploads() {
++  const size_t page_size = static_cast<size_t>(1) << page_size_log2_;
++  const u32 max_hot_pages = kMaxHotPageBytes >> page_size_log2_;
++  hot_page_upload_ranges_.clear();
++  const auto include = [this](u32 page_start, u32 page_count) {
++    if (!hot_page_upload_ranges_.empty()) {
++      std::pair<u32, u32>& last = hot_page_upload_ranges_.back();
++      if (last.first + last.second == page_start) {
++        last.second += page_count;
++        return;
++      }
++    }
++    hot_page_upload_ranges_.emplace_back(page_start, page_count);
++  };
++  for (const std::pair<u32, u32>& range : upload_ranges_) {
++    const u8* guest_range = GetPhysicalForRead(physical_memory_, range.first << page_size_log2_,
++                                               range.second << page_size_log2_);
++    if (!guest_range) {
++      include(range.first, range.second);  // UploadRanges reports it.
++      continue;
++    }
++    for (u32 i = 0; i < range.second; ++i) {
++      const u32 page = range.first + i;
++      const u8* guest = guest_range + (static_cast<size_t>(i) << page_size_log2_);
++      if (IsPageHot(page)) {
++        page_last_request_frame_[page] = hot_page_frame_;
++        u8* shadow = GetHotPageShadow(page);
++        if (std::memcmp(guest, shadow, page_size) == 0) {
++          if (hot_page_frame_ - page_last_change_frame_[page] > kHotPageUnchangedFrames) {
++            // Static now: uploaded and protected like any other page.
++            MakePageNotHot(page, true);
++            include(page, 1);
++          }
++          continue;
++        }
++        std::memcpy(shadow, guest, page_size);
++        page_last_change_frame_[page] = hot_page_frame_;
++        // No access violation reports this write, so tell the global watches here.
++        const u32 address = page << page_size_log2_;
++        for (const auto& global_watch : global_watches_) {
++          global_watch->callback(global_watch->callback_context, address,
++                                 address + static_cast<u32>(page_size) - 1, false);
++        }
++        include(page, 1);
++        continue;
++      }
++      const u32 last_request_frame = page_last_request_frame_[page];
++      if (last_request_frame != hot_page_frame_) {
++        u8& streak = page_upload_streak_[page];
++        streak = last_request_frame + 1 == hot_page_frame_
++                     ? static_cast<u8>(std::min<u32>(streak + 1u, 255u))
++                     : static_cast<u8>(1);
++        page_last_request_frame_[page] = hot_page_frame_;
++        if (streak >= kHotPageUploadStreak && hot_page_count_ < max_hot_pages &&
++            page_watch_count_[page] == 0 && page_shadow_slot_[page] == kNoShadow) {
++          page_shadow_slot_[page] = AllocateHotPageShadow();
++          std::memcpy(GetHotPageShadow(page), guest, page_size);
++          hot_pages_[page >> 6] |= static_cast<u64>(1) << (page & 63);
++          ++hot_page_count_;
++          page_last_change_frame_[page] = hot_page_frame_;
++        }
++      }
++      include(page, 1);
++    }
++  }
++  upload_ranges_.swap(hot_page_upload_ranges_);
++}
++
++void SharedMemory::FlushWatchedHotPages() {
++  if (watched_hot_pages_.empty()) {
++    return;
++  }
++  // Without the lock: protecting takes it.
++  std::sort(watched_hot_pages_.begin(), watched_hot_pages_.end());
++  for (size_t i = 0; i < watched_hot_pages_.size();) {
++    size_t run_end = i + 1;
++    while (run_end < watched_hot_pages_.size() &&
++           watched_hot_pages_[run_end] == watched_hot_pages_[run_end - 1] + 1) {
++      ++run_end;
++    }
++    if (write_listener_registered_) {
++      write_watch_.WatchPhysicalWrites({watched_hot_pages_[i] << page_size_log2_,
++                                        static_cast<u32>(run_end - i) << page_size_log2_});
++    }
++    i = run_end;
++  }
++  // Writes from now on are reported. One made since the last comparison, while the page was
++  // already watched, shows as a difference from the shadow copy.
++  const size_t page_size = static_cast<size_t>(1) << page_size_log2_;
++  auto lock = AcquireLock();
++  for (const u32 page : watched_hot_pages_) {
++    const u8* guest = GetPhysicalForRead(physical_memory_, page << page_size_log2_,
++                                         static_cast<u32>(page_size));
++    if (!guest || std::memcmp(guest, GetHotPageShadow(page), page_size) != 0) {
++      FireWatchesLocked(page, page, false);
++    }
++    hot_page_shadow_free_slots_.push_back(page_shadow_slot_[page]);
++    page_shadow_slot_[page] = kNoShadow;
++  }
++  watched_hot_pages_.clear();
+ }
+ 
+ void SharedMemory::InvalidateAllPages() {
++  FlushWatchedHotPages();
+   auto lock = AcquireLock();
+ 
++  // The shadow copies no longer say what the buffer holds.
++  if (hot_pages_enabled_ && hot_page_count_) {
++    for (u32 block = 0; block < hot_pages_.size(); ++block) {
++      u64 bits = hot_pages_[block];
++      u32 bit;
++      while (rex::bit_scan_forward(bits, &bit)) {
++        bits &= ~(static_cast<u64>(1) << bit);
++        MakePageNotHot((block << 6) + bit, true);
++      }
++    }
++  }
++
+   std::fill(system_page_flags_valid_.begin(), system_page_flags_valid_.end(), static_cast<u64>(0));
+   std::fill(system_page_flags_valid_and_gpu_written_.begin(),
+             system_page_flags_valid_and_gpu_written_.end(), static_cast<u64>(0));
+@@ -174,6 +402,18 @@ SharedMemory::WatchHandle SharedMemory::WatchMemoryRange(const ScopeGuard&, u32
+   range->page_first = watch_page_first;
+   range->page_last = watch_page_last;
+ 
++  if (hot_pages_enabled_) {
++    for (u32 page = watch_page_first; page <= watch_page_last; ++page) {
++      ++page_watch_count_[page];
++      if (IsPageHot(page)) {
++        // Watched pages need the write protection. It can't be changed under the lock the
++        // caller holds: see FlushWatchedHotPages.
++        MakePageNotHot(page, false);
++        watched_hot_pages_.push_back(page);
++      }
++    }
++  }
++
+   WatchNode* node_previous = nullptr;
+   for (u32 i = bucket_first; i <= bucket_last; ++i) {
+     WatchNode* node = watch_node_first_free_;
+@@ -251,6 +491,19 @@ void SharedMemory::RangeWrittenByGPU(u32 start, u32 length) {
+   u32 page_first = start >> page_size_log2_;
+   u32 page_last = end >> page_size_log2_;
+ 
++  if (hot_pages_enabled_) {
++    FlushWatchedHotPages();
++    if (hot_page_count_) {
++      // The buffer holds GPU data now, valid and protected below.
++      auto lock = AcquireLock();
++      for (u32 page = page_first; page <= page_last && hot_page_count_; ++page) {
++        if (IsPageHot(page)) {
++          MakePageNotHot(page, true);
++        }
++      }
++    }
++  }
++
+   FireWatches(page_first, page_last, true);
+ 
+   MarkRangeValid(start, length, true);
+@@ -275,6 +528,7 @@ void SharedMemory::MarkRangeValid(u32 start, u32 length, bool written_by_gpu) {
+   u32 valid_block_first = valid_page_first >> 6;
+   u32 valid_block_last = valid_page_last >> 6;
+ 
++  bool any_hot = false;
+   {
+     auto lock = AcquireLock();
+ 
+@@ -286,19 +540,45 @@ void SharedMemory::MarkRangeValid(u32 start, u32 length, bool written_by_gpu) {
+       if (i == valid_block_last && (valid_page_last & 63) != 63) {
+         valid_bits &= (static_cast<u64>(1) << ((valid_page_last & 63) + 1)) - 1;
+       }
++      // Hot pages stay invalid, so that every request compares them.
++      if (hot_pages_enabled_ && !written_by_gpu && (hot_pages_[i] & valid_bits)) {
++        valid_bits &= ~hot_pages_[i];
++        any_hot = true;
++      }
+       system_page_flags_valid_[i] |= valid_bits;
+       u64& gpu_written = system_page_flags_valid_and_gpu_written_[i];
+       gpu_written = written_by_gpu ? (gpu_written | valid_bits) : (gpu_written & ~valid_bits);
+     }
+   }
+ 
+-  if (write_listener_registered_) {
++  if (!write_listener_registered_) {
++    return;
++  }
++  if (!any_hot) {
+     write_watch_.WatchPhysicalWrites({valid_page_first << page_size_log2_,
+                                       (valid_page_last - valid_page_first + 1) << page_size_log2_});
++    return;
++  }
++  // Only the runs of pages that are not hot. The hot state changes on this thread only.
++  u32 run_first = UINT32_MAX;
++  for (u32 page = valid_page_first; page <= valid_page_last + 1; ++page) {
++    const bool protect = page <= valid_page_last && !IsPageHot(page);
++    if (protect && run_first == UINT32_MAX) {
++      run_first = page;
++    } else if (!protect && run_first != UINT32_MAX) {
++      write_watch_.WatchPhysicalWrites(
++          {run_first << page_size_log2_, (page - run_first) << page_size_log2_});
++      run_first = UINT32_MAX;
++    }
+   }
+ }
+ 
+ void SharedMemory::UnlinkWatchRange(WatchRange* range) {
++  if (hot_pages_enabled_) {
++    for (u32 page = range->page_first; page <= range->page_last; ++page) {
++      --page_watch_count_[page];
++    }
++  }
+   u32 bucket = range->page_first << page_size_log2_ >> kWatchBucketSizeLog2;
+   WatchNode* node = range->node_first;
+   while (node != nullptr) {
+@@ -374,6 +654,10 @@ bool SharedMemory::RequestRanges(const std::pair<u32, u32>* ranges, size_t count
+     }
+   }
+ 
++  if (hot_pages_enabled_) {
++    FlushWatchedHotPages();
++  }
++
+   upload_ranges_.clear();
+   auto append_upload_range = [this](u32 page_start, u32 page_count) {
+     if (!page_count) {
+@@ -432,6 +716,9 @@ bool SharedMemory::RequestRanges(const std::pair<u32, u32>* ranges, size_t count
+         append_upload_range(range_start, page_last + 1 - range_start);
+       }
+     }
++    if (hot_pages_enabled_ && !upload_ranges_.empty()) {
++      FilterHotPageUploads();
++    }
+   }
+ 
+   REX_PROFILE_PLOT("gpu/shared_memory/request_ranges_count", static_cast<u32>(count));
+diff --git a/src/gpu/xenos/shared_memory.h b/src/gpu/xenos/shared_memory.h
+index 7ff20e23..99436b17 100644
+--- a/src/gpu/xenos/shared_memory.h
++++ b/src/gpu/xenos/shared_memory.h
+@@ -40,6 +40,8 @@ class REX_GPU_XENOS_API SharedMemory : public rex::NonCopyable, public IPhysical
+   virtual void ClearCache();
+   void SetSystemPageFlagsValidWithGPUDataWritten();
+   void InvalidateAllPages();
++  /** Counts a frame for hot page detection. Called by the implementation when a frame ends. */
++  void AdvanceHotPageFrame();
+ 
+   using GlobalWatchCallback = void (*)(void* context, u32 address_first, u32 address_last,
+                                        bool invalidated_by_gpu);
+@@ -142,6 +144,21 @@ class REX_GPU_XENOS_API SharedMemory : public rex::NonCopyable, public IPhysical
+    */
+   void MarkRangeValid(u32 start, u32 length, bool written_by_gpu);
+ 
++  /**
++   * Turns on hot pages: pages the CPU rewrites every frame, such as dynamic vertex data, are no
++   * longer write protected. Each time one is requested it is compared with a shadow copy of what
++   * was uploaded last and uploaded again only when it changed. That saves a protection change
++   * for every upload and an access violation for every CPU write to the page. Only for
++   * implementations whose UploadRanges copies the data with CopyPagesForUpload.
++   */
++  void EnableHotPages();
++  /**
++   * Copies the pages to upload to dst, hot pages from their shadow copies.
++   *
++   * @return False when the guest memory of the range can't be read.
++   */
++  bool CopyPagesForUpload(u8* dst, u32 page_first, u32 page_count);
++
+   /**
+    * Uploads a range of host pages, only when the sparse host GPU memory allocation succeeded. The
+    * ranges are page granular and sorted by address.
+@@ -169,6 +186,53 @@ class REX_GPU_XENOS_API SharedMemory : public rex::NonCopyable, public IPhysical
+   /** Ranges to upload, generated by RequestRanges. */
+   std::vector<std::pair<u32, u32>> upload_ranges_;
+ 
++  // Hot pages (see EnableHotPages). A page becomes hot after uploads in consecutive frames. It
++  // stops being hot when it stays unchanged or isn't requested for a while, when a range
++  // containing it is watched, or when the GPU writes it. A hot page is never valid, never
++  // protected and never watched. The state changes only on the GPU thread; what guest threads
++  // touch (the watch counts) is guarded by the memory watch lock.
++  static constexpr u8 kHotPageUploadStreak = 3;
++  static constexpr u32 kHotPageUnchangedFrames = 120;
++  /** Every this many frames, hot pages that are no longer requested are made normal again. */
++  static constexpr u32 kHotPageSweepFrames = 64;
++  /** Memory for shadow copies. */
++  static constexpr u32 kMaxHotPageBytes = 64 * 1024 * 1024;
++  static constexpr u32 kHotPageSlabPagesLog2 = 8;
++  static constexpr u32 kNoShadow = UINT32_MAX;
++  bool hot_pages_enabled_ = false;
++  u32 hot_page_frame_ = 1;
++  u32 hot_page_count_ = 0;
++  std::vector<u64> hot_pages_;
++  std::vector<u32> page_last_request_frame_;
++  std::vector<u32> page_last_change_frame_;
++  std::vector<u8> page_upload_streak_;
++  /** Watched ranges containing each page. Guarded by the memory watch lock. */
++  std::vector<u32> page_watch_count_;
++  std::vector<u32> page_shadow_slot_;
++  std::vector<std::unique_ptr<u8[]>> hot_page_shadow_slabs_;
++  std::vector<u32> hot_page_shadow_free_slots_;
++  u32 hot_page_shadow_slots_used_ = 0;
++  std::vector<std::pair<u32, u32>> hot_page_upload_ranges_;
++  /**
++   * Pages that stopped being hot because a range containing them is now watched. They keep their
++   * shadow copy until FlushWatchedHotPages protects them, which can't be done under the lock.
++   */
++  std::vector<u32> watched_hot_pages_;
++  bool IsPageHot(u32 page) const {
++    return hot_pages_enabled_ && ((hot_pages_[page >> 6] >> (page & 63)) & 1);
++  }
++  u8* GetHotPageShadow(u32 page);
++  u32 AllocateHotPageShadow();
++  /** Makes the page normal: invalid and unprotected, uploaded and protected at its next request. */
++  void MakePageNotHot(u32 page, bool free_shadow);
++  /**
++   * Compares the requested hot pages with their shadow copies and drops the unchanged ones from
++   * upload_ranges_, and makes pages hot. Requires the lock from AcquireLock.
++   */
++  void FilterHotPageUploads();
++  /** Protects the pages in watched_hot_pages_ and fires their watches if they were written. */
++  void FlushWatchedHotPages();
++
+   // Members below are guarded by the memory watch lock.
+ 
+   /** Pages whose buffer contents are in sync with guest memory. */
+diff --git a/src/gpu/xenos/vulkan/command_processor.cpp b/src/gpu/xenos/vulkan/command_processor.cpp
+index 2b591389..065c5edb 100644
+--- a/src/gpu/xenos/vulkan/command_processor.cpp
++++ b/src/gpu/xenos/vulkan/command_processor.cpp
+@@ -5162,6 +5162,9 @@ bool VulkanCommandProcessor::EndSubmission(bool is_swap) {
+     if (GetXenosSettings().clear_memory_page_state.Get() && shared_memory_) {
+       shared_memory_->SetSystemPageFlagsValidWithGPUDataWritten();
+     }
++    if (shared_memory_) {
++      shared_memory_->AdvanceHotPageFrame();
++    }
+     frame_open_ = false;
+     // The frame's last submission is the one that ended.
+     closed_frame_submissions_[(frame_current_++) % kMaxFramesInFlight] = GetCurrentSubmission() - 1;
+diff --git a/src/gpu/xenos/vulkan/shared_memory.cpp b/src/gpu/xenos/vulkan/shared_memory.cpp
+index 79c57c8b..94a72a82 100644
+--- a/src/gpu/xenos/vulkan/shared_memory.cpp
++++ b/src/gpu/xenos/vulkan/shared_memory.cpp
+@@ -41,6 +41,9 @@ bool VulkanSharedMemory::Initialize() {
+   InitializeCommon();
+   upload_hoisting_pages_.assign(((kBufferSize >> GetPageSizeLog2()) + 63) / 64, 0);
+   upload_hoisting_blocks_used_.clear();
++  if (command_processor_.GetXenosSettings().shared_memory_hot_pages.Get()) {
++    EnableHotPages();
++  }
+ 
+   const gpu::vulkan::VulkanDevice* const vulkan_device = command_processor_.GetVulkanDevice();
+   const gpu::vulkan::VulkanDevice::Functions& dfn = vulkan_device->GetFunctions();
+@@ -373,14 +376,11 @@ bool VulkanSharedMemory::UploadRanges(const std::vector<std::pair<u32, u32>>& up
+       }
+       MarkRangeValid(upload_range_start << GetPageSizeLog2(), static_cast<u32>(upload_buffer_size),
+                      false);
+-      const u8* upload_source =
+-          GetPhysicalForRead(GetMemory(), upload_range_start << GetPageSizeLog2(),
+-                             static_cast<u32>(upload_buffer_size));
+-      if (!upload_source) {
++      if (!CopyPagesForUpload(upload_buffer_mapping, upload_range_start,
++                              static_cast<u32>(upload_buffer_size >> GetPageSizeLog2()))) {
+         successful = false;
+         break;
+       }
+-      std::memcpy(upload_buffer_mapping, upload_source, upload_buffer_size);
+       if (upload_buffer_previous != upload_buffer) {
+         flush_upload_regions();
+       }
+diff --git a/src/gpu/xenos/xenos_settings.h b/src/gpu/xenos/xenos_settings.h
+index 86dae33d..0efba0b2 100644
+--- a/src/gpu/xenos/xenos_settings.h
++++ b/src/gpu/xenos/xenos_settings.h
+@@ -77,6 +77,10 @@ class XenosSettings : public SettingOwner {
+   REX_SETTING(bool, clear_memory_page_state, true,
+               "Refresh the page valid state from GPU written memory at frame end. Turning it off "
+               "lowers CPU cost but may break memory coherency");
++  REX_SETTING(bool, shared_memory_hot_pages, false,
++              "Don't write protect the pages the CPU rewrites every frame; compare them with the "
++              "data uploaded last when a draw asks for them (Vulkan)",
++              kRestart);
+   REX_SETTING(bool, occlusion_query_enable, true, "Enable host occlusion query handling");
+   REX_SETTING(bool, readback_resolve_half_pixel_offset, false,
+               "When draw resolution scaling is active, sample from the center of each scaled block "

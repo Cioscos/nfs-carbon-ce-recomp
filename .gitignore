@@ -25,7 +25,7 @@ __pycache__/
 *.pyc
 
 # --- Local performance experiments ---
-perf/
+/perf/
 
 # --- Release packages ---
 dist/
