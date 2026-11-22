@@ -1,21 +1,49 @@
-# Need for Speed: Carbon Collector's Edition – Recompiled
+# Need for Speed: Carbon Collector's Edition – Recompiled (European edition)
 
 A native PC port of **Need for Speed: Carbon Collector's Edition for the Xbox 360**, made by
 static recompilation with the [ReXGlue SDK](https://github.com/rexglue/rexglue-sdk). The
 game's PowerPC code is translated to C++ ahead of time and compiled for x86-64; graphics run
 on Vulkan (or Direct3D 12).
 
+This is a fork of [mkalkhoven-po/nfs-carbon-ce-recomp](https://github.com/mkalkhoven-po/nfs-carbon-ce-recomp),
+the original project by Martin Kalkhoven. The fork adds the **European Collector's Edition**,
+with its language screen and the twelve languages on the disc, and makes the game run faster
+on SDK v0.11. Its releases are for the European edition; for the USA edition, use the releases of
+the original project. See [Differences from the original project](#differences-from-the-original-project).
+
 **Version 0.76 – public test build.** The game is playable from start to finish as far as we
 know, but only a part of the Career has been tested. Please report what you find (see
 [Reporting problems](#reporting-problems)).
 
 > **No game files are included.** You need your own copy of the game: a disc image (`.iso`) of
-> the **Collector's Edition** (title ID `454107EC`) or the files extracted from it. Two
-> editions are supported: the USA one (`default.xex` version 0.0.0.7) and the European one
-> (version 0.0.0.11). Each `nfsc.exe` runs only the edition it was built for, and the
-> downloadable release is for **0.0.0.7**; for 0.0.0.11, build it from source (see
-> [Building from source](#building-from-source)). Other editions (the regular release) have a
-> different executable and will not run; the game checks this at startup.
+> the **Collector's Edition** (title ID `454107EC`) or the files extracted from it. The code
+> supports two editions: the USA one (`default.xex` version 0.0.0.7) and the European one
+> (version 0.0.0.11). Each `nfsc.exe` runs only the edition it was built for. The releases of
+> this fork are for the **European edition, 0.0.0.11**; for 0.0.0.7, download the
+> [original project's release](https://github.com/mkalkhoven-po/nfs-carbon-ce-recomp/releases)
+> or build from source (see [Building from source](#building-from-source)). Other editions
+> (the regular release) have a different executable and will not run; the game checks this at
+> startup.
+
+## Differences from the original project
+
+What this fork changes, compared with the original project's v0.76:
+
+| | Original project | This fork |
+|---|---|---|
+| Release download | USA Collector's Edition (0.0.0.7) | European Collector's Edition (0.0.0.11) |
+| Editions in the code | USA only | USA and Europe: the build reads the version of `game/default.xex` and uses that edition's addresses and function list (`-DNFSC_GAME_VERSION=v7` or `v11` to insist on one) |
+| Languages | English | European edition: the game's own language screen at startup and the twelve languages on the disc. The disc has speech in English only, so voices and cutscene audio stay English with every language (before this fix, cutscenes in other languages had no sound track) |
+| Frame rate (Remix, 165 Hz monitor) | 80–120 fps in races, GPU at 40% | 150–157 fps in menus, races and the eight-car start (157 is the NVIDIA driver's own cap with low-latency G-SYNC) |
+| `gpu.vsync` | On: every frame waits for a whole screen refresh, so a frame slightly too slow for one refresh waits for two | Off in both profiles; the frame rate limit is kept by the game itself |
+| SDK patches (`patches/rexglue-sdk/`) | Widescreen movies and loading screens | Also: vblanks as soon as the game waits for one, GPU registers written as ranges, "hot pages" for textures uploaded every frame. One subject per patch, and the SDK setup stops when a patch doesn't apply instead of skipping it |
+| RecompLauncher | – | `recomplauncher.json` in the release: RecompLauncher checks your disc, sets the game up and starts it (see [With RecompLauncher](#with-recomplauncher)) |
+
+Our frame rates were measured on a Ryzen 7 7800X3D with an RTX 4080 at 2560×1440, 165 Hz. The
+measurements and the causes are in [ROADMAP.md](ROADMAP.md) (in Dutch). Two of the SDK patches
+have also been offered to the ReXGlue SDK itself: the register ranges
+([#618](https://github.com/rexglue/rexglue-sdk/pull/618)) and the disc image as game root
+([#620](https://github.com/rexglue/rexglue-sdk/pull/620)).
 
 This project is not affiliated with or endorsed by Electronic Arts, Microsoft or Xbox. All
 trademarks belong to their respective owners. It does not promote piracy: use a dump of a disc
@@ -56,7 +84,25 @@ you own.
 
 ## Installing and starting
 
-1. Download the release zip and extract it anywhere.
+### With RecompLauncher
+
+[RecompLauncher](https://recomplauncher.com) installs and updates the game from this
+repository's releases. Install it there, then drop in your disc image (or pick the folder with
+`default.xex`): the launcher checks that it is the Collector's Edition (title ID `454107EC`)
+and Play starts the game with it. No file dialog appears.
+
+Started from RecompLauncher, the game keeps its savegames and shader cache in the `recompdata`
+folder inside its install folder (not in `Documents\nfsc`), so the launcher can back them up.
+Settings (`nfsc.toml`) and logs stay next to `nfsc.exe`. To keep savegames from an earlier
+installation, copy the contents of `Documents\nfsc` (or of `userdata` in portable mode) into
+`recompdata`. Settings are changed in the game, under PC SETTINGS.
+
+The launcher's check can't tell the European disc from the USA one (they have the same title
+ID). With the USA disc the game stops at startup and says so.
+
+### By hand
+
+1. Download the release zip (`...-Europe-Windows-x64.zip`) and extract it anywhere.
 2. Start `nfsc.exe`. Choose the Remix profile and other options later under PC SETTINGS
    in the main menu.
 3. On the first start a file dialog asks for the game. Choose either
@@ -146,8 +192,9 @@ aspect_ratio = "21:9"
 
 ## Reporting problems
 
-Open an issue on GitHub with what you did, what happened, your GPU, your monitor's refresh
-rate and the profile and settings you used. The log files are in the `logs` folder next to
+Open an issue [in this repository](https://github.com/Cioscos/nfs-carbon-ce-recomp/issues)
+(problems with the USA release go to the original project) with what you did, what happened,
+your GPU, your monitor's refresh rate and the profile and settings you used. The log files are in the `logs` folder next to
 `nfsc.exe`; attach the one from the session where it happened. After a crash the game also
 writes a dump file (`.dmp`) there and tells you where it is; attach that too.
 
@@ -190,7 +237,9 @@ cmake --preset win-amd64
 cmake --build --preset win-amd64-release
 ```
 
-`python tools/package-release.py` puts a build together as a release folder and zip.
+`python tools/package-release.py` puts a build together as a release folder and zip, named
+for the edition it was built for (`NFS-Carbon-CE-Recompiled-v0.76-Europe-Windows-x64.zip`). The
+European one also gets `recomplauncher.json`, which RecompLauncher reads from the top of the zip.
 
 Development notes (in Dutch): [docs/DEVELOPMENT.nl.md](docs/DEVELOPMENT.nl.md) and
 [ROADMAP.md](ROADMAP.md).
@@ -198,6 +247,7 @@ Development notes (in Dutch): [docs/DEVELOPMENT.nl.md](docs/DEVELOPMENT.nl.md) a
 ## License
 
 Our code is licensed under the BSD 3-Clause License (see [LICENSE](LICENSE)), like the ReXGlue
-SDK. Release builds include third-party libraries under their own licenses (see the
+SDK. The original project is by Martin Kalkhoven; this fork keeps its license and copyright
+notice. Release builds include third-party libraries under their own licenses (see the
 `licenses` folder in the release). The game itself and everything generated from it remain
 the property of Electronic Arts.

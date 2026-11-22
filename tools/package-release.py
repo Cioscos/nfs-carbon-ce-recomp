@@ -1,7 +1,11 @@
 """Put the release build together as dist/<name>/ and dist/<name>.zip.
 
-The zip holds the executable, the SDK runtime DLLs, README, release notes and license texts.
+The zip holds the executable, the SDK runtime DLLs, README, release notes, license texts and,
+for the European build, recomplauncher.json (RecompLauncher reads it from the top of the zip).
 No game files: players supply their own disc image or extracted disc.
+
+The name says the edition and the system, as RecompLauncher picks a release file by them:
+NFS-Carbon-CE-Recompiled-v0.76-Europe-Windows-x64.zip.
 
 Usage (after building nfsc with the win-amd64-release preset):
     python tools/package-release.py [--version 0.76]
@@ -75,6 +79,23 @@ def tlsf_license() -> str:
     return "\n".join(lines).strip() + "\n"
 
 
+# The edition the build is for (nfsc_edition.h, from cmake/detect_edition.cmake).
+EDITION_REGIONS = {"V7": "USA", "V11": "Europe"}
+# recomplauncher.json asks for the European disc; a USA build doesn't get it.
+LAUNCHER_MANIFEST_REGION = "Europe"
+
+
+def built_region() -> str:
+    header = BUILD_TREE / "nfsc_generated" / "nfsc_edition.h"
+    if not header.is_file():
+        fail(f"{header} not found: configure the build first")
+    match = re.search(r"^#define NFSC_GAME_(V\d+) 1$", header.read_text(encoding="utf-8"),
+                      re.MULTILINE)
+    if not match or match.group(1) not in EDITION_REGIONS:
+        fail(f"no known edition in {header}")
+    return EDITION_REGIONS[match.group(1)]
+
+
 def check_optimized() -> None:
     # A failed configure once left the release build at -O0 (see the ROADMAP); refuse that.
     cache = (BUILD_TREE / "CMakeCache.txt").read_text(encoding="utf-8", errors="replace")
@@ -93,7 +114,8 @@ def main() -> None:
     if not notes.is_file():
         fail(f"no release notes at {notes}")
 
-    name = f"NFS-Carbon-CE-Recompiled-v{version}"
+    region = built_region()
+    name = f"NFS-Carbon-CE-Recompiled-v{version}-{region}-Windows-x64"
     out = ROOT / "dist" / name
     if out.exists():
         shutil.rmtree(out)
@@ -105,6 +127,8 @@ def main() -> None:
     shutil.copy2(ROOT / "README.md", out / "README.md")
     shutil.copy2(ROOT / "LICENSE", out / "LICENSE.txt")
     shutil.copy2(notes, out / "RELEASE-NOTES.md")
+    if region == LAUNCHER_MANIFEST_REGION:
+        shutil.copy2(ROOT / "recomplauncher.json", out / "recomplauncher.json")
 
     # License texts: the SDK and the third-party libraries it builds in.
     shutil.copy2(SDK / "LICENSE", out / "licenses" / "rexglue-sdk.txt")
