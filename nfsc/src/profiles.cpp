@@ -57,7 +57,7 @@ constexpr std::array kProfileValues = {
     // Carbon writes vertex data right before each draw, about a thousand pages per frame in a
     // race. Protecting every page again after its upload, and the access violation at the next
     // write, took 17% of the GPU thread; these pages are compared with a copy instead (SDK
-    // patch 0005). Eight cars on the grid: 122 fps without, 154 with.
+    // patch 0007). Eight cars on the grid: 122 fps without, 154 with.
     ProfileValue{"gpu.xenos.shared_memory_hot_pages", "true", "true"},
     // Immediate presentation showed only black on NVIDIA (RTX 5080, layered DXGI present)
     // on SDK v0.10; mailbox and FIFO work.

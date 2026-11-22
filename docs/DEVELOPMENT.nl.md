@@ -13,10 +13,10 @@ v0.0.0.7) en Europa (v0.0.0.11). Elke build is voor één editie: die van `game/
 |---|---|
 | `*.iso` | Eigen dump van de disc (XGD2) |
 | `game/` | Volledig uitgepakte disc: `default.xex`, `NFS/ZZDATA*.BIN`, `Movies/` |
-| `tools/` | `xdvdfs.py` (disc uitpakken), `xexinfo.py` (XEX-header dumpen), `xexid.py` (title, versie en digest van de eerste pagina, voor CMake), `setup-sdk.sh` |
+| `tools/` | `xdvdfs.py` (disc uitpakken), `xexinfo.py` (XEX-header dumpen), `xexid.py` (title, versie en digest van de eerste pagina, voor CMake), `setup-sdk.sh`, `apply-sdk-patches.sh` |
 | `tools/re/` | Reverse-engineering: `strings.py`, `xrefs.py` (lis/addi-verwijzingen), `callers.py` (wie roept een functie aan), `disasm.py` (disassembly uit de gegenereerde code). Ze werken op een dump van het geladen image: start met `--nfsc.dump_image=image.bin` |
 | `sdk/rexglue-sdk/` | ReXGlue SDK v0.11.0 als git-submodule (upstream, tag `v0.11.0`, commit `a3e1d82`) |
-| `patches/rexglue-sdk/` | Onze aanpassingen op de SDK, toegepast door `setup-sdk.sh` |
+| `patches/rexglue-sdk/` | Onze aanpassingen op de SDK, toegepast door `setup-sdk.sh` (via `apply-sdk-patches.sh`) |
 | `nfsc/` | Het recompilatie-project |
 | `nfsc/cmake/editions.cmake` | De bekende edities: versie, digest en naam |
 | `nfsc/cmake/detect_edition.cmake` | Leest `game/default.xex`, kiest de editie (`NFSC_GAME_VERSION`: `auto`, `v7`, `v11`) en maakt `nfsc_edition.h` |
@@ -76,11 +76,24 @@ widescreen, +0x218 voor het menu); de globals waren gelijk.
 
 Staan als patch in `patches/rexglue-sdk/` (de submodule wijst naar ongewijzigd upstream).
 Overgezet naar SDK v0.11.0 op 17-11; van de tien patches voor v0.10 waren er drie over. Op
-22-11 kwamen 0004 en 0005 erbij (prestaties, zie ROADMAP).
+22-11 kwamen 0004–0007 erbij (prestaties, zie ROADMAP). Elke patch bevat één onderwerp, zodat
+een patch die upstream is overgenomen bij een nieuwe SDK-versie alleen zichzelf raakt.
+
+`tools/apply-sdk-patches.sh` (aangeroepen door `setup-sdk.sh`) past de reeks eerst toe op een
+tijdelijke index van de SDK-commit, en raakt de bestanden pas aan als de hele reeks past:
+
+- een patch die de SDK al heeft (hij draait schoon terug) meldt `already in the SDK` en wordt
+  overgeslagen: verwijder hem dan;
+- een patch die niet toepast en ook niet terugdraait stopt het script met een fout: werk hem
+  bij voor de nieuwe SDK-versie of haal het deel eruit dat upstream al heeft;
+- staan de patches al in de working tree, dan meldt het `patches already applied`; andere
+  lokale wijzigingen in de SDK stoppen het script, zodat het er niet overheen patcht.
+
+Getest in `tools/tests/test_apply_sdk_patches.py`. De patches:
 
 - `0001-filesystem-disc-image-game-root.patch` (`file_system`, `title_app`): `title.game_root`
   mag ook een disc-image (`.iso`) zijn; dat wordt dan als `kDiscImage` gemount in plaats van
-  als map. Opvolger van v0.10-patch 0009.
+  als map. Opvolger van v0.10-patch 0009. Voorgesteld upstream: rexglue/rexglue-sdk#620.
 - `0002-vulkan-hoist-uploads-no-draw-in-transfer-pass.patch` (Vulkan command processor,
   deferred command buffer, shared memory): de game schrijft vertexdata vlak voor elke draw; de
   backend uploadt die per draw en breekt daarvoor elke keer de render pass af. Nu gaan uploads
@@ -98,18 +111,24 @@ Overgezet naar SDK v0.11.0 op 17-11; van de tien patches voor v0.10 waren er dri
   uitgerekt over de bredere render. Opvolger van 0004/0005, die video's in de kernel
   herkenden aan open `.wmv`-bestanden.
 
-- `0004-command-processor-register-ranges-vblank-on-demand.patch` (command processor, shared
-  memory, Vulkan pipeline cache): kleine dingen op het pad van elke draw. (1) Een type-0-pakket
+- `0004-command-processor-register-ranges.patch` (command processor): een type-0-pakket
   schrijft zijn registers als reeks in plaats van één voor één; Carbon zet zo zijn
   shaderconstanten, en per register liep een `switch` over alle registers (`GetRegisterInfo`,
-  alleen voor een waarschuwing; nu één bit per register). (2) Zonder `gpu.vsync` krijgt een
-  `WAIT_REG_MEM` op geheugen meteen een vblank (`DeliverVblankNow`) in plaats van te wachten op
-  de volgende tik van de timer. De timer loopt ook zonder vsync op de refresh rate (de SDK
-  zelf gaat dan naar 1000 Hz) en slaat voor elke vervroegde vblank één tik over, zodat de game
-  gemiddeld evenveel vblanks ziet als het scherm er heeft; de timer en de command processor
-  delen een mutex, zodat er één vblank-interrupt tegelijk loopt. (3) `RequestRanges` alloceerde bij elke aanroep
-  een vector. (4) `AnalyzeShaderUCode` las bij elke draw een string-instelling (lock en kopie).
-- `0005-shared-memory-hot-pages.patch` (shared memory, Vulkan): instelling
+  alleen voor een waarschuwing; nu één bit per register). Voorgesteld upstream (iets anders:
+  een pakket van één register gaat daar nog via `WriteRegister`): rexglue/rexglue-sdk#618.
+- `0005-vblank-on-demand.patch` (command processor, graphics driver): zonder `gpu.vsync`
+  krijgt een `WAIT_REG_MEM` op geheugen meteen een vblank (`DeliverVblankNow`) in plaats van te
+  wachten op de volgende tik van de timer. De timer loopt ook zonder vsync op de refresh rate
+  (de SDK zelf gaat dan naar 1000 Hz) en slaat voor elke vervroegde vblank één tik over, zodat
+  de game gemiddeld evenveel vblanks ziet als het scherm er heeft; de timer en de command
+  processor delen een mutex, zodat er één vblank-interrupt tegelijk loopt. Hoort bij
+  `gpu.vsync = false` in onze profielen (zie ROADMAP, "Prestaties op SDK v0.11").
+- `0006-per-draw-request-ranges-dump-shaders.patch` (shared memory, Vulkan pipeline cache):
+  `RequestRanges` alloceerde bij elke aanroep een vector, en `AnalyzeShaderUCode` las bij elke
+  draw een string-instelling (lock en kopie). Upstream heeft beide al op `development`
+  (`e3ad982a` voor één bereik, `b4dde823`); de vector bij meer bereiken (texture cache) kost
+  daar te weinig om voor te stellen. Vervalt bij de volgende SDK-versie.
+- `0007-shared-memory-hot-pages.patch` (shared memory, Vulkan): instelling
   `gpu.xenos.shared_memory_hot_pages` (standaard uit, onze profielen zetten hem aan). Pagina's
   die drie frames op rij geüpload worden, worden niet meer schrijfbeveiligd; bij elke aanvraag
   worden ze vergeleken met een schaduwkopie van wat het laatst is geüpload. Dat scheelt per
@@ -130,7 +149,7 @@ Vervallen bij de overstap:
   na herstart). `nfsc.frame_rate_limit` zet die.
 - 0003 (`log_swap_rate`): niet meer nodig; `nfsc.log_fps` logt de fps.
 - 0007 (hot pages): de eerste overzetting liet het menu op v0.11 naar ~30 fps zakken met
-  frames van 550 ms. Opnieuw geschreven als 0005 (zie boven).
+  frames van 550 ms. Opnieuw geschreven als 0007 (zie boven).
 - 0010 (mutex in `InputSystem`): het invoersysteem van v0.11 heeft eigen locks.
 - AMD FidelityFX (CAS, FSR) zit niet meer in de SDK; Remix presenteert nu bilineair.
 

@@ -387,12 +387,12 @@ op 165 Hz tot 157 fps; de driver slaapt in `vkQueuePresentKHR`).
   stonden 80–90% te wachten; de GPU-thread sliep 31% van de tijd in die wait. Daarbij hield de
   present-thread in FIFO de queue-mutex vast (10% van de GPU-thread).
   Nu: `gpu.vsync` uit in beide profielen, de limiet in onze present-hook (`framerate.cpp`), en
-  SDK-patch 0004 geeft een vblank zodra de game erom vraagt. Present-modus is dan mailbox.
+  SDK-patch 0005 geeft een vblank zodra de game erom vraagt. Present-modus is dan mailbox.
 - **Oorzaak 2: registers één voor één.** Carbon zet shaderconstanten met type-0-pakketten; die
   gingen per register door een virtuele `WriteRegister` met een `switch` over alle registers.
-  19% van de GPU-thread, na patch 0004 5%.
+  19% van de GPU-thread, na patch 0004 5%. Upstream voorgesteld als rexglue/rexglue-sdk#618.
 - **Oorzaak 3: pagina's beveiligen.** `VirtualProtect` na elke upload: 17% van de GPU-thread bij
-  de start met acht auto's. Hot pages zijn terug als patch 0005: 122 → 154 fps op die plek.
+  de start met acht auto's. Hot pages zijn terug als patch 0007: 122 → 154 fps op die plek.
 - Klein: een vector-allocatie per `RequestRanges` (9%), een string-instelling per draw (2%).
 - Nagelopen: race-klok realtime (10,38 s in 10,41 s), video's gelijk aan de oude timing (zelfde
   beelden op dezelfde tijdstippen, Origineel en Remix), Origineel exact 30 fps, D3D12 start en
@@ -449,7 +449,7 @@ op 165 Hz tot 157 fps; de driver slaapt in `vkQueuePresentKHR`).
       Bekend: `pad.cpp` blokkeert alleen speler 1 tijdens PC SETTINGS en op de achtergrond, en
       PC SETTINGS luistert alleen naar speler 1.
 
-- [x] **Hot pages op SDK v0.11** (17-11; klaar 22-11 als SDK-patch 0005, zie "Prestaties op
+- [x] **Hot pages op SDK v0.11** (17-11; klaar 22-11 als SDK-patch 0007, zie "Prestaties op
       SDK v0.11"). De overgezette versie van v0.10-patch 0007 maakte
       het menu traag (~30 fps, frames van 550 ms); weggelaten. Uitzoeken waarom (mogelijk de
       globale watches per pagina) en of het naast hoisting nog iets oplevert.

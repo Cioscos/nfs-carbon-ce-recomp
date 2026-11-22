@@ -25,11 +25,4 @@ for link in $links; do
   fi  # missing targets are macOS-only (MoltenVK) and can be ignored
 done
 
-for patch in "$root"/patches/rexglue-sdk/*.patch; do
-  if git -C "$sdk" apply --check "$patch" 2>/dev/null; then
-    git -C "$sdk" apply "$patch"
-    echo "applied $(basename "$patch")"
-  else
-    echo "skipped $(basename "$patch") (already applied or conflicts)"
-  fi
-done
+bash "$root/tools/apply-sdk-patches.sh" "$sdk" "$root/patches/rexglue-sdk"
