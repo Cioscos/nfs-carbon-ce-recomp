@@ -77,10 +77,12 @@ optioneel **Remix**-profiel voor moderne hardware. Renderer: **Vulkan**.
       - EDRAM: de hoofdscène gebruikt 4× MSAA-tiles van 1280×256 (precies 10 MiB); descriptors
         worden geregistreerd via `sub_82505998` (tabel 0x82D5B250, +36 = MSAA). Tiles die bij
         4× niet passen gaan naar 2× → geen banden; maximaal 2560 breed (32:9).
-      - Video's: 16:9-materiaal werd uitgerekt; SDK-patch 0004 presenteert tijdens het spelen
-        van een `.wmv` in `present_movie_aspect` (16:9).
+      - Video's: 16:9-materiaal werd uitgerekt; SDK-patch 0004 (reeks v0.10) presenteerde
+        tijdens het spelen van een `.wmv` in `present_movie_aspect` (16:9).
       - Laadschermen (`Loading*.fng`) tekent de game over de volle breedte uitgerekt; zolang
-        zo'n FE-pakket actief is presenteert de app op 16:9 (SDK-patch 0005), net als video's.
+        zo'n FE-pakket actief is presenteert de app op 16:9 (SDK-patch 0005 van v0.10), net als
+        video's. Op v0.11 doet SDK-patch 0003 (`gpu.xenos.present_aspect`) beide, zie
+        DEVELOPMENT.
       Getest: intro-video's, titelscherm, hoofdmenu, race-intro en Quick Race (ook met Remix:
       60 fps, ~80% GPU). Op 21:9 nagelopen (28/29-10), alles correct (niet uitgerekt, HUD aan
       de randen, dialogen gecentreerd): My Cars, Challenge Series, Quick Race-kaart en -opties,
@@ -388,11 +390,18 @@ op 165 Hz tot 157 fps; de driver slaapt in `vkQueuePresentKHR`).
   present-thread in FIFO de queue-mutex vast (10% van de GPU-thread).
   Nu: `gpu.vsync` uit in beide profielen, de limiet in onze present-hook (`framerate.cpp`), en
   SDK-patch 0005 geeft een vblank zodra de game erom vraagt. Present-modus is dan mailbox.
+  Uitgesplitst (22-11, start met acht auto's, mediaan over 8 s, twee runs): `gpu.vsync` aan
+  82,5 fps; uit zonder 0005 142,6 / 141,2 (de SDK-timer gaat dan naar 1000 Hz, de game ziet
+  1000 vblanks per seconde); uit met 0005 155,6 / 153,1. Vsync uit is dus het grootste deel;
+  0005 geeft ~12 fps en houdt de vblanks op de refresh rate. Voorgelegd upstream als
+  commentaar op rexglue/rexglue-sdk#556.
 - **Oorzaak 2: registers één voor één.** Carbon zet shaderconstanten met type-0-pakketten; die
   gingen per register door een virtuele `WriteRegister` met een `switch` over alle registers.
   19% van de GPU-thread, na patch 0004 5%. Upstream voorgesteld als rexglue/rexglue-sdk#618.
 - **Oorzaak 3: pagina's beveiligen.** `VirtualProtect` na elke upload: 17% van de GPU-thread bij
-  de start met acht auto's. Hot pages zijn terug als patch 0007: 122 → 154 fps op die plek.
+  de start met acht auto's. Hot pages zijn terug als patch 0007: 122 → 154 fps op die plek
+  (22-11 opnieuw: uit 122,4 / 124,0, aan 155,6 / 153,1). Upstream gevraagd op
+  rexglue/rexglue-sdk#548 (het ontwerp van Martin, #549 werd zonder commentaar gesloten).
 - Klein: een vector-allocatie per `RequestRanges` (9%), een string-instelling per draw (2%).
 - Nagelopen: race-klok realtime (10,38 s in 10,41 s), video's gelijk aan de oude timing (zelfde
   beelden op dezelfde tijdstippen, Origineel en Remix), Origineel exact 30 fps, D3D12 start en

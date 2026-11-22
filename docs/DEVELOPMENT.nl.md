@@ -109,7 +109,9 @@ Getest in `tools/tests/test_apply_sdk_patches.py`. De patches:
   verhouding in plaats van die van de videomodus. De app zet hem zolang een video
   (`FEAnyMovie.fng`) of laadscherm (`Loading*.fng`) actief is, want die tekent de game
   uitgerekt over de bredere render. Opvolger van 0004/0005, die video's in de kernel
-  herkenden aan open `.wmv`-bestanden.
+  herkenden aan open `.wmv`-bestanden. Voorgesteld upstream als rexglue/rexglue-sdk#624
+  (strenger: elke term 1–4095 en hooguit 16:1, en de verhouding gaat zelf als display size
+  naar de presenter).
 
 - `0004-command-processor-register-ranges.patch` (command processor): een type-0-pakket
   schrijft zijn registers als reeks in plaats van één voor één; Carbon zet zo zijn
