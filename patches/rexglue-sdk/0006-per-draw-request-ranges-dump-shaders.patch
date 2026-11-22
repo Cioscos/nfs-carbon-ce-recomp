@@ -1,0 +1,29 @@
+diff --git a/src/gpu/xenos/shared_memory.cpp b/src/gpu/xenos/shared_memory.cpp
+index 7db4abed..1446ce0d 100644
+--- a/src/gpu/xenos/shared_memory.cpp
++++ b/src/gpu/xenos/shared_memory.cpp
+@@ -325,7 +325,9 @@ bool SharedMemory::RequestRanges(const std::pair<u32, u32>* ranges, size_t count
+     return true;
+   }
+ 
+-  std::vector<std::pair<u32, u32>> merged_ranges;
++  // Called for every draw: keep the storage instead of allocating each time.
++  thread_local std::vector<std::pair<u32, u32>> merged_ranges;
++  merged_ranges.clear();
+   merged_ranges.reserve(count);
+   for (size_t i = 0; i < count; ++i) {
+     u32 start = ranges[i].first;
+diff --git a/src/gpu/xenos/vulkan/pipeline_cache.cpp b/src/gpu/xenos/vulkan/pipeline_cache.cpp
+index d476c48e..e8f25947 100644
+--- a/src/gpu/xenos/vulkan/pipeline_cache.cpp
++++ b/src/gpu/xenos/vulkan/pipeline_cache.cpp
+@@ -78,6 +78,9 @@ VulkanPipelineCache::VulkanPipelineCache(VulkanCommandProcessor& command_process
+       guest_shader_vertex_stages_(guest_shader_vertex_stages) {}
+ 
+ void VulkanPipelineCache::AnalyzeShaderUCode(Shader& shader) {
++  if (shader.IsUcodeAnalyzed()) {
++    return;  // Called for every draw: don't read the setting (a lock and a string copy).
++  }
+   shader.AnalyzeUcode(ucode_disasm_buffer_,
+                       command_processor_.GetXenosSettings().dump_shaders.Get());
+ }

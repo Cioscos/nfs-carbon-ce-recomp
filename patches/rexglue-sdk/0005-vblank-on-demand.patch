@@ -2,66 +2,6 @@ diff --git a/src/gpu/xenos/command_processor.cpp b/src/gpu/xenos/command_process
 index 249f7f08..1c06372d 100644
 --- a/src/gpu/xenos/command_processor.cpp
 +++ b/src/gpu/xenos/command_processor.cpp
-@@ -9,7 +9,9 @@
-  * @modified    Tom Clay, 2026 - Adapted for ReXGlue runtime
-  */
- 
-+#include <atomic>
- #include <bit>
-+#include <vector>
- #include <algorithm>
- #include <chrono>
- #include <cinttypes>
-@@ -357,6 +359,22 @@ u32 CommandProcessor::ReadRegisterValue(u32 index) const {
-   return it != extended_register_values_.end() ? it->second : 0;
- }
- 
-+namespace {
-+
-+// GetRegisterInfo is a switch over every register; this is one bit per register.
-+bool IsKnownRegister(u32 index) {
-+  static const std::vector<bool> known = [] {
-+    std::vector<bool> bits(xenos::RegisterFile::kRegisterCount);
-+    for (u32 i = 0; i < xenos::RegisterFile::kRegisterCount; ++i) {
-+      bits[i] = xenos::RegisterFile::GetRegisterInfo(i) != nullptr;
-+    }
-+    return bits;
-+  }();
-+  return known[index];
-+}
-+
-+}  // namespace
-+
- void CommandProcessor::WriteRegister(u32 index, u32 value) {
-   xenos::RegisterFile& regs = *register_file_;
-   if (index >= xenos::RegisterFile::kRegisterCount) {
-@@ -370,7 +388,7 @@ void CommandProcessor::WriteRegister(u32 index, u32 value) {
- 
-   // Volatile for the WAIT_REG_MEM loop.
-   const_cast<volatile u32&>(regs.values[index]) = value;
--  if (!regs.GetRegisterInfo(index)) {
-+  if (!IsKnownRegister(index)) [[unlikely]] {
-     REXGPU_WARN_ONCE(unknown_write_once_, index, "GPU: Write to unknown register ({:04X} = {:08X})",
-                      index, value);
-   }
-@@ -698,10 +716,13 @@ bool CommandProcessor::ExecutePacketType0(memory::RingBuffer* reader, u32 packet
- 
-   u32 base_index = (packet & 0x7FFF);
-   u32 write_one_reg = (packet >> 15) & 0x1;
--  for (u32 m = 0; m < count; m++) {
--    u32 reg_data = reader->ReadAndSwap<u32>();
--    u32 target_index = write_one_reg ? base_index : base_index + m;
--    WriteRegister(target_index, reg_data);
-+  if (write_one_reg) {
-+    for (u32 m = 0; m < count; m++) {
-+      WriteRegister(base_index, reader->ReadAndSwap<u32>());
-+    }
-+  } else {
-+    // As a range, so that a backend can take a block of shader constants at once.
-+    WriteRegisterRangeFromRing(reader, base_index, count);
-   }
- 
-   return true;
 @@ -971,6 +992,7 @@ bool CommandProcessor::ExecutePacketType3_WAIT_REG_MEM(memory::RingBuffer* reade
    bool is_memory = (wait_info & 0x10) != 0;
  
@@ -86,35 +26,6 @@ index 249f7f08..1c06372d 100644
          } else {
            rex::platform::SleepFor(std::chrono::milliseconds(wait / 0x100));
          }
-diff --git a/src/gpu/xenos/shared_memory.cpp b/src/gpu/xenos/shared_memory.cpp
-index 7db4abed..1446ce0d 100644
---- a/src/gpu/xenos/shared_memory.cpp
-+++ b/src/gpu/xenos/shared_memory.cpp
-@@ -325,7 +325,9 @@ bool SharedMemory::RequestRanges(const std::pair<u32, u32>* ranges, size_t count
-     return true;
-   }
- 
--  std::vector<std::pair<u32, u32>> merged_ranges;
-+  // Called for every draw: keep the storage instead of allocating each time.
-+  thread_local std::vector<std::pair<u32, u32>> merged_ranges;
-+  merged_ranges.clear();
-   merged_ranges.reserve(count);
-   for (size_t i = 0; i < count; ++i) {
-     u32 start = ranges[i].first;
-diff --git a/src/gpu/xenos/vulkan/pipeline_cache.cpp b/src/gpu/xenos/vulkan/pipeline_cache.cpp
-index d476c48e..e8f25947 100644
---- a/src/gpu/xenos/vulkan/pipeline_cache.cpp
-+++ b/src/gpu/xenos/vulkan/pipeline_cache.cpp
-@@ -78,6 +78,9 @@ VulkanPipelineCache::VulkanPipelineCache(VulkanCommandProcessor& command_process
-       guest_shader_vertex_stages_(guest_shader_vertex_stages) {}
- 
- void VulkanPipelineCache::AnalyzeShaderUCode(Shader& shader) {
-+  if (shader.IsUcodeAnalyzed()) {
-+    return;  // Called for every draw: don't read the setting (a lock and a string copy).
-+  }
-   shader.AnalyzeUcode(ucode_disasm_buffer_,
-                       command_processor_.GetXenosSettings().dump_shaders.Get());
- }
 diff --git a/src/gpu/xenos/xenos_graphics_driver_base.cpp b/src/gpu/xenos/xenos_graphics_driver_base.cpp
 index 6fe403e1..e5cd13d1 100644
 --- a/src/gpu/xenos/xenos_graphics_driver_base.cpp
