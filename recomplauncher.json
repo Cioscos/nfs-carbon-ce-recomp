@@ -1,0 +1,32 @@
+{
+  "$schema": "https://recomplauncher.com/schema/recomplauncher.json",
+  "format": 1,
+  "name": "Need for Speed: Carbon Collector's Edition - Recompiled (Europe)",
+  "repo": "Cioscos/nfs-carbon-ce-recomp",
+  "inputs": [
+    {
+      "id": "game",
+      "role": "game",
+      "label": "Your disc image (.iso) of Need for Speed: Carbon Collector's Edition for Xbox 360, European release (default.xex version 0.0.0.11), or its extracted folder with default.xex. The USA release does not run with this build.",
+      "formats": [{ "type": "file", "extensions": ["iso"] }, { "type": "folder" }],
+      "check": { "ids": ["454107EC"] }
+    }
+  ],
+  "start": {
+    "program": ["nfsc.exe"],
+    "args": ["--game_data_root={input:game}", "--user_data_root={data}"]
+  },
+  "saves": ["{data}"],
+  "folders": {
+    "saves": [{ "path": "{data}" }],
+    "logs": [{ "path": "{install}/logs" }]
+  },
+  "actions": [
+    { "id": "saves", "label": "Savegames", "help": "Your career and settings saved by the game.", "open": "saves" },
+    { "id": "cache", "label": "Shader cache", "help": "Shaders the game has built, so later races don't stutter. Clearing only helps if graphics look wrong after an update.", "clear": "saves/cache" },
+    { "id": "logs", "label": "Logs", "help": "The log of each session, and a dump file after a crash. Attach them when you report a problem.", "open": "logs" }
+  ],
+  "system": {
+    "windows": { "version": "10", "graphics": { "vulkan": "1.3" } }
+  }
+}

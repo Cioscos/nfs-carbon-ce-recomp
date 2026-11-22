@@ -338,9 +338,13 @@ std::string CheckEdition(rex::filesystem::IFileSystem& file_system) {
       other = &edition;
     }
   }
-  constexpr const char* kChooseAgain =
-      "Delete game_path.txt in your user data folder to choose a different disc image or "
-      "folder at the next start.";
+  // A path given on the command line (a launcher, a shortcut) isn't remembered.
+  const char* kChooseAgain =
+      ChosenByPlayer("title.game_root")
+          ? "Choose a different disc image or folder where you start the game (in "
+            "RecompLauncher: on the game's page)."
+          : "Delete game_path.txt in your user data folder to choose a different disc image or "
+            "folder at the next start.";
   std::string message;
   if (other) {
     message = std::format(
