@@ -11,7 +11,7 @@ with its language screen and the twelve languages on the disc, and makes the gam
 on SDK v0.11. Its releases are for the European edition; for the USA edition, use the releases of
 the original project. See [Differences from the original project](#differences-from-the-original-project).
 
-**Version 0.76 – public test build.** The game is playable from start to finish as far as we
+**Version 0.761 – public test build.** The game is playable from start to finish as far as we
 know, but only a part of the Career has been tested. Please report what you find (see
 [Reporting problems](#reporting-problems)).
 
@@ -38,9 +38,10 @@ What this fork changes, compared with the original project's v0.76:
 | `gpu.vsync` | On: every frame waits for a whole screen refresh, so a frame slightly too slow for one refresh waits for two | Off in both profiles; the frame rate limit is kept by the game itself |
 | SDK patches (`patches/rexglue-sdk/`) | Widescreen movies and loading screens | Also: vblanks as soon as the game waits for one, GPU registers written as ranges, "hot pages" for textures uploaded every frame. One subject per patch, and the SDK setup stops when a patch doesn't apply instead of skipping it |
 | RecompLauncher | – | `recomplauncher.json` in the release: RecompLauncher checks your disc, sets the game up and starts it (see [With RecompLauncher](#with-recomplauncher)) |
+| Switching to another window (Alt+Tab) | The pause is the wrong way round: the game goes on in the background, and pauses and ignores the controller when you come back | Fixed in v0.761: the game pauses when you leave its window and goes on when you come back |
 
 Our frame rates were measured on a Ryzen 7 7800X3D with an RTX 4080 at 2560×1440, 165 Hz. The
-measurements and the causes are in [ROADMAP.md](ROADMAP.md) (in Dutch). Two of the SDK patches
+measurements and the causes are in [ROADMAP.md](ROADMAP.md). Two of the SDK patches
 have also been offered to the ReXGlue SDK itself: the register ranges
 ([#618](https://github.com/rexglue/rexglue-sdk/pull/618)) and the disc image as game root
 ([#620](https://github.com/rexglue/rexglue-sdk/pull/620)).
@@ -238,10 +239,10 @@ cmake --build --preset win-amd64-release
 ```
 
 `python tools/package-release.py` puts a build together as a release folder and zip, named
-for the edition it was built for (`NFS-Carbon-CE-Recompiled-v0.76-Europe-Windows-x64.zip`). The
+for the edition it was built for (`NFS-Carbon-CE-Recompiled-v0.761-Europe-Windows-x64.zip`). The
 European one also gets `recomplauncher.json`, which RecompLauncher reads from the top of the zip.
 
-Development notes (in Dutch): [docs/DEVELOPMENT.nl.md](docs/DEVELOPMENT.nl.md) and
+Development notes: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) and
 [ROADMAP.md](ROADMAP.md).
 
 ## License

@@ -5,10 +5,10 @@ for the European build, recomplauncher.json (RecompLauncher reads it from the to
 No game files: players supply their own disc image or extracted disc.
 
 The name says the edition and the system, as RecompLauncher picks a release file by them:
-NFS-Carbon-CE-Recompiled-v0.76-Europe-Windows-x64.zip.
+NFS-Carbon-CE-Recompiled-v0.761-Europe-Windows-x64.zip.
 
 Usage (after building nfsc with the win-amd64-release preset):
-    python tools/package-release.py [--version 0.76]
+    python tools/package-release.py [--version 0.761]
 """
 
 import argparse
@@ -19,7 +19,7 @@ import sys
 import zipfile
 from pathlib import Path
 
-DEFAULT_VERSION = "0.76"
+DEFAULT_VERSION = "0.761"
 
 ROOT = Path(__file__).resolve().parent.parent
 BUILD_TREE = ROOT / "nfsc" / "out" / "build" / "win-amd64"

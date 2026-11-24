@@ -3,7 +3,7 @@
 # The SDK package provides rexglue_project and the rexglue_setup_* functions.
 
 cmake_minimum_required(VERSION 3.25)
-project(nfsc VERSION 0.76 LANGUAGES CXX)
+project(nfsc VERSION 0.761 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
