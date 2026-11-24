@@ -9,7 +9,7 @@
 // name) it also lists what that function calls and the innermost frames under it.
 //
 // Function names need PDBs: link the SDK and the game with -Wl,/DEBUG,/OPT:REF,/OPT:ICF
-// (see docs/DEVELOPMENT.nl.md). Names of system DLLs without symbols are the nearest
+// (see docs/DEVELOPMENT.md). Names of system DLLs without symbols are the nearest
 // export, so memcpy in vcruntime140 shows up as _NLG_Return2.
 //
 // Build: clang++ -O2 -std=c++20 tools/perf/sampler.cpp -o sampler.exe -ldbghelp

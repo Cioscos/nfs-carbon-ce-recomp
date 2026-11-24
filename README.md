@@ -41,7 +41,7 @@ What this fork changes, compared with the original project's v0.76:
 | Switching to another window (Alt+Tab) | The pause is the wrong way round: the game goes on in the background, and pauses and ignores the controller when you come back | Fixed in v0.761: the game pauses when you leave its window and goes on when you come back |
 
 Our frame rates were measured on a Ryzen 7 7800X3D with an RTX 4080 at 2560×1440, 165 Hz. The
-measurements and the causes are in [ROADMAP.md](ROADMAP.md) (in Dutch). Two of the SDK patches
+measurements and the causes are in [ROADMAP.md](ROADMAP.md). Two of the SDK patches
 have also been offered to the ReXGlue SDK itself: the register ranges
 ([#618](https://github.com/rexglue/rexglue-sdk/pull/618)) and the disc image as game root
 ([#620](https://github.com/rexglue/rexglue-sdk/pull/620)).
@@ -242,7 +242,7 @@ cmake --build --preset win-amd64-release
 for the edition it was built for (`NFS-Carbon-CE-Recompiled-v0.761-Europe-Windows-x64.zip`). The
 European one also gets `recomplauncher.json`, which RecompLauncher reads from the top of the zip.
 
-Development notes (in Dutch): [docs/DEVELOPMENT.nl.md](docs/DEVELOPMENT.nl.md) and
+Development notes: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) and
 [ROADMAP.md](ROADMAP.md).
 
 ## License
