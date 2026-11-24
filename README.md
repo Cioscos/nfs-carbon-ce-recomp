@@ -5,6 +5,13 @@ static recompilation with the [ReXGlue SDK](https://github.com/rexglue/rexglue-s
 game's PowerPC code is translated to C++ ahead of time and compiled for x86-64; graphics run
 on Vulkan (or Direct3D 12).
 
+<a href="https://recomplauncher.com/game/nfs-carbon-ce-recomp-2">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/recomplauncher/badge-light.svg">
+    <img src="docs/recomplauncher/badge-dark.svg" alt="Get it on RecompLauncher" height="56">
+  </picture>
+</a>
+
 This is a fork of [mkalkhoven-po/nfs-carbon-ce-recomp](https://github.com/mkalkhoven-po/nfs-carbon-ce-recomp),
 the original project by Martin Kalkhoven. The fork adds the **European Collector's Edition**,
 with its language screen and the twelve languages on the disc, and makes the game run faster
@@ -88,7 +95,9 @@ you own.
 ### With RecompLauncher
 
 [RecompLauncher](https://recomplauncher.com) installs and updates the game from this
-repository's releases. Install it there, then drop in your disc image (or pick the folder with
+repository's releases; the game's page there is
+[Need for Speed: Carbon CE Recompiled (Europe)](https://recomplauncher.com/game/nfs-carbon-ce-recomp-2).
+Install it there, then drop in your disc image (or pick the folder with
 `default.xex`): the launcher checks that it is the Collector's Edition (title ID `454107EC`)
 and Play starts the game with it. No file dialog appears.
 
