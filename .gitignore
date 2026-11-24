@@ -19,6 +19,8 @@ CMakeUserPresets.json
 
 # --- Local reference copies ---
 sdk/rexglue-wiki/
+# RecompLauncher's press kit; the badges the README uses are in docs/recomplauncher/.
+/recomplauncher-press-kit/
 
 # --- Tooling ---
 __pycache__/
