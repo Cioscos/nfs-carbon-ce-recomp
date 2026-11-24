@@ -204,9 +204,19 @@ class NfscApp : public rex::app::TitleApp, public rex::ui::IUIEventListener {
     if (event.GetType() != rex::ui::UIEvent::Type::kFocus) {
       return;
     }
-    background_ = !GetUI().IsFocused() && nfsc::Settings().pause_in_background.Get();
-    nfsc::SetPadBlockedInBackground(background_);
-    UpdateGuestPause();
+    // The UI system tells its listeners before it updates its own focus state, so
+    // IsFocused() still has the previous value here. Read it once the event is through.
+    GetUI().PostTask([this] {
+      const bool background =
+          !GetUI().IsFocused() && nfsc::Settings().pause_in_background.Get();
+      if (background != background_) {
+        REXLOG_INFO("nfsc: window {}", background ? "in the background, pausing the game"
+                                                  : "in focus again");
+      }
+      background_ = background;
+      nfsc::SetPadBlockedInBackground(background_);
+      UpdateGuestPause();
+    });
   }
 
   void OnInputEvent(rex::InputEvent&) override {}
